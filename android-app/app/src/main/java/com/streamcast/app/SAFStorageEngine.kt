@@ -28,7 +28,8 @@ class SAFStorageEngine(
     fun resolvePath(path: String): DocumentFile? {
         val cleanPath = "/" + path.trim('/').replace(Regex("/{2,}"), "/")
         
-        pathCache[cleanPath]?.let { return it }
+        val cached = pathCache[cleanPath]
+        if (cached != null) return cached
 
         if (cleanPath == "/") return rootFolder
 

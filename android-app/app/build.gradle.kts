@@ -50,4 +50,8 @@ dependencies {
     implementation("io.ktor:ktor-server-netty:$ktor_version")
     implementation("io.ktor:ktor-server-partial-content:$ktor_version")
     implementation("io.ktor:ktor-server-cors:$ktor_version")
+
+    // Scoped Storage Document Picker and ZXing QR Code Dependencies
+    implementation("androidx.documentfile:documentfile:1.1.0")
+    implementation("com.google.zxing:core:3.5.2")
 }

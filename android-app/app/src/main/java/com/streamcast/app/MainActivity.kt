@@ -125,7 +125,7 @@ class MainActivity : ComponentActivity() {
                         val files = rootDoc?.listFiles()?.map { 
                             Pair(it.name ?: "Unknown", if (it.isDirectory) 0L else it.length())
                         } ?: emptyList()
-                        fileList = files.sortedWith(compareBy({ it.second > 0 }, { it.first }))
+                        fileList = files.sortedWith(compareBy<Pair<String, Long>> { it.second != 0L }.thenBy { it.first })
                     } catch (e: Exception) {
                         e.printStackTrace()
                     }
