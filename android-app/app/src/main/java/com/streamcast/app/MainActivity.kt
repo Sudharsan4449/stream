@@ -54,6 +54,8 @@ class MainActivity : ComponentActivity() {
         super.onCreate(savedInstanceState)
         
         setContent {
+            val context = androidx.compose.ui.platform.LocalContext.current
+            val clipboardManager = androidx.compose.ui.platform.LocalClipboardManager.current
             MaterialTheme {
                 Surface(
                     modifier = Modifier.fillMaxSize(),
@@ -85,18 +87,31 @@ class MainActivity : ComponentActivity() {
                             ) {
                                 Column(modifier = Modifier.padding(16.dp)) {
                                     Text("TV Network Stream URL:", style = MaterialTheme.typography.labelLarge)
+                                    Spacer(modifier = Modifier.height(8.dp))
                                     Text(
                                         text = serverUrlState.value,
                                         style = MaterialTheme.typography.bodyLarge,
                                         color = MaterialTheme.colorScheme.secondary
                                     )
+                                    Spacer(modifier = Modifier.height(16.dp))
+                                    Row(
+                                        modifier = Modifier.fillMaxWidth(),
+                                        horizontalArrangement = Arrangement.End
+                                    ) {
+                                        Button(onClick = {
+                                            clipboardManager.setText(androidx.compose.ui.text.AnnotatedString(serverUrlState.value))
+                                            android.widget.Toast.makeText(context, "URL Copied to Clipboard!", android.widget.Toast.LENGTH_SHORT).show()
+                                        }) {
+                                            Text("Copy URL")
+                                        }
+                                    }
                                 }
                             }
                             
                             Spacer(modifier = Modifier.height(16.dp))
                             
                             Button(onClick = { stopServer() }) {
-                                Text("Stop Stream")
+                                  Text("Stop Stream")
                             }
                         }
                     }
