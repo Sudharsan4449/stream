@@ -24,6 +24,7 @@ import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.withContext
 import java.io.InputStream
 import java.net.NetworkInterface
+import io.ktor.utils.io.jvm.javaio.toByteReadChannel
 
 class MainActivity : ComponentActivity() {
 
@@ -208,7 +209,7 @@ class UriReadChannelContent(
 
     override fun readFrom(): io.ktor.utils.io.ByteReadChannel {
         val inputStream = contentResolver.openInputStream(uri) ?: throw java.io.IOException("Failed to open input stream")
-        return io.ktor.utils.io.jvm.javaio.toByteReadChannel(inputStream, context = kotlinx.coroutines.Dispatchers.IO)
+        return inputStream.toByteReadChannel(context = kotlinx.coroutines.Dispatchers.IO)
     }
 
     override fun readFrom(range: LongRange): io.ktor.utils.io.ByteReadChannel {
@@ -219,6 +220,6 @@ class UriReadChannelContent(
             if (skipped <= 0) break
             toSkip -= skipped
         }
-        return io.ktor.utils.io.jvm.javaio.toByteReadChannel(inputStream, context = kotlinx.coroutines.Dispatchers.IO)
+        return inputStream.toByteReadChannel(context = kotlinx.coroutines.Dispatchers.IO)
     }
 }
