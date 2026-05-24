@@ -124,20 +124,14 @@ class MainActivity : ComponentActivity() {
                 get("/stream") {
                     val uri = activeVideoUri
                     if (uri != null) {
-                        val inputStream = contentResolver.openInputStream(uri)
-                        if (inputStream != null) {
-                            // Ktor handles Range requests automatically with PartialContent and respondOutputStream
-                            val fileDescriptor = contentResolver.openAssetFileDescriptor(uri, "r")
-                            val fileSize = fileDescriptor?.length ?: 0
-                            
-                            call.response.header("Content-Length", fileSize.toString())
-                            call.response.header("Accept-Ranges", "bytes")
-                            call.respondOutputStream(contentType = io.ktor.http.ContentType.Video.Any) {
-                                inputStream.copyTo(this)
-                                inputStream.close()
-                            }
+                        val fileDescriptor = contentResolver.openAssetFileDescriptor(uri, "r")
+                        val fileSize = fileDescriptor?.length ?: -1L
+                        fileDescriptor?.close()
+                        
+                        if (fileSize >= 0) {
+                            call.respond(UriReadChannelContent(contentResolver, uri, fileSize))
                         } else {
-                            call.respondText("Cannot read file", status = io.ktor.http.HttpStatusCode.InternalServerError)
+                            call.respondText("Cannot read file size", status = io.ktor.http.HttpStatusCode.InternalServerError)
                         }
                     } else {
                         call.respondText("No video selected", status = io.ktor.http.HttpStatusCode.NotFound)
@@ -201,5 +195,30 @@ class MainActivity : ComponentActivity() {
     override fun onDestroy() {
         super.onDestroy()
         stopServer()
+    }
+}
+
+class UriReadChannelContent(
+    private val contentResolver: android.content.ContentResolver,
+    private val uri: Uri,
+    private val fileSize: Long
+) : io.ktor.http.content.OutgoingContent.ReadChannelContent() {
+    override val contentLength: Long = fileSize
+    override val contentType: io.ktor.http.ContentType = io.ktor.http.ContentType.Video.Any
+
+    override fun readFrom(): io.ktor.utils.io.ByteReadChannel {
+        val inputStream = contentResolver.openInputStream(uri) ?: throw java.io.IOException("Failed to open input stream")
+        return io.ktor.utils.io.jvm.javaio.toByteReadChannel(inputStream, context = kotlinx.coroutines.Dispatchers.IO)
+    }
+
+    override fun readFrom(range: LongRange): io.ktor.utils.io.ByteReadChannel {
+        val inputStream = contentResolver.openInputStream(uri) ?: throw java.io.IOException("Failed to open input stream")
+        var toSkip = range.start
+        while (toSkip > 0) {
+            val skipped = inputStream.skip(toSkip)
+            if (skipped <= 0) break
+            toSkip -= skipped
+        }
+        return io.ktor.utils.io.jvm.javaio.toByteReadChannel(inputStream, context = kotlinx.coroutines.Dispatchers.IO)
     }
 }
