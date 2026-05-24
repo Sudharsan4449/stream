@@ -61,6 +61,8 @@ class StreamingService : Service() {
         return START_NOT_STICKY
     }
 
+    private var nsdHelper: NsdHelper? = null
+
     private fun startServiceForeground(uri: Uri, port: Int) {
         // 1. Create Notification Channel
         createNotificationChannel()
@@ -107,6 +109,11 @@ class StreamingService : Service() {
             val storageEngine = SAFStorageEngine(applicationContext, uri)
             server = WebDavServer(applicationContext, storageEngine, port)
             server?.start()
+            
+            // Register server via mDNS/NSD for automatic TV discovery
+            nsdHelper = NsdHelper(applicationContext).apply {
+                registerService(port)
+            }
         } catch (e: Exception) {
             e.printStackTrace()
             stopServiceInternal()
@@ -143,6 +150,8 @@ class StreamingService : Service() {
         activePort = 8080
         server?.stop()
         server = null
+        nsdHelper?.unregisterService()
+        nsdHelper = null
         releaseLocks()
         stopForeground(STOP_FOREGROUND_REMOVE)
         stopSelf()
