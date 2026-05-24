@@ -43,6 +43,8 @@ import androidx.core.content.ContextCompat
 import androidx.documentfile.provider.DocumentFile
 import kotlinx.coroutines.delay
 import kotlinx.coroutines.launch
+import androidx.compose.ui.focus.onFocusChanged
+import androidx.compose.foundation.focusable
 import java.net.NetworkInterface
 
 class MainActivity : ComponentActivity() {
@@ -507,12 +509,17 @@ class MainActivity : ComponentActivity() {
                                     } else {
                                         items(discoveredServers) { server ->
                                             val url = "http://${server.first}:${server.second}"
+                                            var isFocused by remember { mutableStateOf(false) }
                                             Card(
                                                 modifier = Modifier
                                                     .fillMaxWidth()
                                                     .padding(8.dp)
+                                                    .onFocusChanged { isFocused = it.isFocused }
+                                                    .focusable()
                                                     .clickable { selectedServerUrl = url },
-                                                colors = CardDefaults.cardColors(containerColor = Color(0xFF334155))
+                                                colors = CardDefaults.cardColors(
+                                                    containerColor = if (isFocused) AccentColor else Color(0xFF334155)
+                                                )
                                             ) {
                                                 Row(
                                                     modifier = Modifier.padding(16.dp),
@@ -523,18 +530,18 @@ class MainActivity : ComponentActivity() {
                                                         Text(
                                                             text = "StreamCast Phone Server",
                                                             fontWeight = FontWeight.Bold,
-                                                            color = Color.White
+                                                            color = if (isFocused) Color.Black else Color.White
                                                         )
                                                         Text(
                                                             text = url,
-                                                            color = Color.LightGray,
+                                                            color = if (isFocused) Color(0xFF1E293B) else Color.LightGray,
                                                             fontSize = 13.sp
                                                         )
                                                     }
                                                     Icon(
                                                         imageVector = Icons.Default.PlayArrow,
                                                         contentDescription = "Connect",
-                                                        tint = AccentColor
+                                                        tint = if (isFocused) Color.Black else AccentColor
                                                     )
                                                 }
                                             }
@@ -568,9 +575,13 @@ class MainActivity : ComponentActivity() {
                                             }
                                         } else {
                                             items(serverFiles) { node ->
-                                                Row(
+                                                var isFocused by remember { mutableStateOf(false) }
+                                                Card(
                                                     modifier = Modifier
                                                         .fillMaxWidth()
+                                                        .padding(vertical = 4.dp, horizontal = 8.dp)
+                                                        .onFocusChanged { isFocused = it.isFocused }
+                                                        .focusable()
                                                         .clickable {
                                                             if (node.isDirectory) {
                                                                 pathStack.add(node.path)
@@ -596,37 +607,42 @@ class MainActivity : ComponentActivity() {
                                                                 }
                                                                 context.startActivity(playIntent)
                                                             }
-                                                        }
-                                                        .padding(16.dp),
-                                                    horizontalArrangement = Arrangement.SpaceBetween,
-                                                    verticalAlignment = Alignment.CenterVertically
+                                                        },
+                                                    colors = CardDefaults.cardColors(
+                                                        containerColor = if (isFocused) SecondaryAccent else Color.Transparent
+                                                    )
                                                 ) {
                                                     Row(
-                                                        modifier = Modifier.weight(1f),
+                                                        modifier = Modifier.padding(16.dp),
+                                                        horizontalArrangement = Arrangement.SpaceBetween,
                                                         verticalAlignment = Alignment.CenterVertically
                                                     ) {
-                                                        Icon(
-                                                            imageVector = if (node.isDirectory) Icons.Default.Info else Icons.Default.PlayArrow,
-                                                            contentDescription = "Item Type",
-                                                            tint = if (node.isDirectory) SecondaryAccent else AccentColor,
-                                                            modifier = Modifier.size(24.dp)
-                                                        )
-                                                        Spacer(modifier = Modifier.width(12.dp))
+                                                        Row(
+                                                            modifier = Modifier.weight(1f),
+                                                            verticalAlignment = Alignment.CenterVertically
+                                                        ) {
+                                                            Icon(
+                                                                imageVector = if (node.isDirectory) Icons.Default.Info else Icons.Default.PlayArrow,
+                                                                contentDescription = "Item Type",
+                                                                tint = if (isFocused) Color.Black else (if (node.isDirectory) SecondaryAccent else AccentColor),
+                                                                modifier = Modifier.size(24.dp)
+                                                            )
+                                                            Spacer(modifier = Modifier.width(12.dp))
+                                                            Text(
+                                                                text = node.name,
+                                                                color = if (isFocused) Color.Black else Color.White,
+                                                                fontSize = 15.sp,
+                                                                maxLines = 1,
+                                                                overflow = TextOverflow.Ellipsis
+                                                            )
+                                                        }
                                                         Text(
-                                                            text = node.name,
-                                                            color = Color.White,
-                                                            fontSize = 15.sp,
-                                                            maxLines = 1,
-                                                            overflow = TextOverflow.Ellipsis
+                                                            text = if (node.isDirectory) "Directory" else formatSize(node.size),
+                                                            color = if (isFocused) Color(0xFF1E293B) else Color.LightGray,
+                                                            fontSize = 12.sp
                                                         )
                                                     }
-                                                    Text(
-                                                        text = if (node.isDirectory) "Directory" else formatSize(node.size),
-                                                        color = Color.LightGray,
-                                                        fontSize = 12.sp
-                                                    )
                                                 }
-                                                Divider(color = Color(0xFF334155), thickness = 0.5.dp)
                                             }
                                         }
                                     }
