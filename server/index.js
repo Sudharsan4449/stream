@@ -1,8 +1,8 @@
 const express = require('express');
 const cors = require('cors');
-const multer = require('multer');
 const fs = require('fs');
 const path = require('path');
+const os = require('os');
 
 const app = express();
 const PORT = process.env.PORT || 3001;
@@ -10,51 +10,117 @@ const PORT = process.env.PORT || 3001;
 app.use(cors());
 app.use(express.json());
 
-const UPLOADS_DIR = path.join(__dirname, 'uploads');
-if (!fs.existsSync(UPLOADS_DIR)) {
-  fs.mkdirSync(UPLOADS_DIR);
-}
-
-// Multer storage configuration
-const storage = multer.diskStorage({
-  destination: (req, file, cb) => {
-    cb(null, UPLOADS_DIR);
-  },
-  filename: (req, file, cb) => {
-    // Keep the original extension, replace spaces and special characters
-    const uniqueSuffix = Date.now() + '-' + Math.round(Math.random() * 1E9);
-    const ext = path.extname(file.originalname);
-    cb(null, file.fieldname + '-' + uniqueSuffix + ext);
-  }
-});
-
-const upload = multer({ storage: storage });
-
 let currentVideo = null; // Store information about the currently active video
 
-// API to handle video upload from mobile
-app.post('/api/upload', upload.single('video'), (req, res) => {
-  if (!req.file) {
-    return res.status(400).json({ error: 'No video file uploaded.' });
+const SUPPORTED_EXTS = ['.mp4', '.mkv', '.avi', '.mov', '.webm'];
+
+// Recursive function to find video files up to a certain depth
+function findVideos(dir, depth = 0, maxDepth = 4) {
+  let results = [];
+  if (depth > maxDepth) return results;
+  
+  if (!fs.existsSync(dir)) return results;
+
+  try {
+    const list = fs.readdirSync(dir);
+    for (let file of list) {
+      // Ignore hidden files and node_modules
+      if (file.startsWith('.') || file === 'node_modules') continue;
+      
+      const filePath = path.join(dir, file);
+      try {
+        const stat = fs.statSync(filePath);
+        if (stat.isDirectory()) {
+          results = results.concat(findVideos(filePath, depth + 1, maxDepth));
+        } else {
+          const ext = path.extname(file).toLowerCase();
+          if (SUPPORTED_EXTS.includes(ext)) {
+            results.push({
+              name: file,
+              path: filePath,
+              size: stat.size,
+              ext: ext
+            });
+          }
+        }
+      } catch (err) {
+        // Skip files with permission errors
+      }
+    }
+  } catch (err) {
+    // Skip unreadable directories
+  }
+  return results;
+}
+
+// API to list available videos from storage
+app.get('/api/files', (req, res) => {
+  let dirsToScan = [];
+  const homedir = os.homedir();
+  
+  if (process.platform === 'android' || fs.existsSync('/data/data/com.termux')) {
+    // Termux environment: look for standard Android storage symlinks created by termux-setup-storage
+    const storageDir = path.join(homedir, 'storage');
+    if (fs.existsSync(storageDir)) {
+      dirsToScan.push(path.join(storageDir, 'movies'));
+      dirsToScan.push(path.join(storageDir, 'downloads'));
+      dirsToScan.push(path.join(storageDir, 'dcim'));
+      dirsToScan.push(path.join(storageDir, 'shared', 'Movies'));
+      dirsToScan.push(path.join(storageDir, 'shared', 'Download'));
+    } else {
+      // Fallback: search the current working directory
+      dirsToScan.push(process.cwd());
+    }
+  } else {
+    // Windows/Mac/Linux fallback for local testing
+    dirsToScan.push(path.join(homedir, 'Videos'));
+    dirsToScan.push(path.join(homedir, 'Downloads'));
+    dirsToScan.push(process.cwd()); 
   }
 
-  // If there's already a video, delete it to save space (no permanent storage)
-  if (currentVideo && fs.existsSync(currentVideo.path)) {
-    fs.unlinkSync(currentVideo.path);
+  // Deduplicate and filter to only directories that actually exist
+  dirsToScan = [...new Set(dirsToScan)].filter(dir => fs.existsSync(dir));
+
+  let allVideos = [];
+  for (const dir of dirsToScan) {
+    allVideos = allVideos.concat(findVideos(dir));
   }
 
+  // Deduplicate files by path (just in case overlapping symlinks caused duplicates)
+  const uniqueVideos = [];
+  const map = new Map();
+  for (const item of allVideos) {
+    if (!map.has(item.path)) {
+      map.set(item.path, true);
+      uniqueVideos.push(item);
+    }
+  }
+
+  // Sort by size descending (usually larger files are the full movies we want)
+  uniqueVideos.sort((a, b) => b.size - a.size);
+
+  res.json({ videos: uniqueVideos, scannedDirs: dirsToScan });
+});
+
+// API to set the active video stream
+app.post('/api/set-active', (req, res) => {
+  const { videoPath } = req.body;
+  if (!videoPath || !fs.existsSync(videoPath)) {
+    return res.status(400).json({ error: 'Invalid or missing file path.' });
+  }
+
+  const stat = fs.statSync(videoPath);
   currentVideo = {
-    path: req.file.path,
-    filename: req.file.filename,
-    originalName: req.file.originalname,
-    mimetype: req.file.mimetype,
-    size: req.file.size
+    path: videoPath,
+    originalName: path.basename(videoPath),
+    size: stat.size,
+    mimetype: `video/${path.extname(videoPath).replace('.', '')}`
   };
 
   const streamUrl = `http://${req.hostname}:${PORT}/api/stream`;
   
   res.json({
-    message: 'Video ready for streaming',
+    message: 'Video active for streaming',
     video: currentVideo,
     streamUrl
   });
@@ -113,13 +179,8 @@ app.get('/api/status', (req, res) => {
 
 // Clear current video
 app.delete('/api/clear', (req, res) => {
-  if (currentVideo && fs.existsSync(currentVideo.path)) {
-    fs.unlinkSync(currentVideo.path);
-    currentVideo = null;
-    res.json({ message: 'Video cleared' });
-  } else {
-    res.status(404).json({ error: 'No active video to clear' });
-  }
+  currentVideo = null;
+  res.json({ message: 'Video cleared' });
 });
 
 app.listen(PORT, '0.0.0.0', () => {
