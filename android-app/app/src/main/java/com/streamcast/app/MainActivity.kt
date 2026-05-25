@@ -49,6 +49,11 @@ import kotlinx.coroutines.launch
 import androidx.compose.ui.focus.onFocusChanged
 import androidx.compose.foundation.focusable
 import java.net.NetworkInterface
+import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.withContext
+import org.json.JSONObject
+import java.net.URL
+import java.net.HttpURLConnection
 
 class MainActivity : ComponentActivity() {
 
@@ -157,6 +162,9 @@ class MainActivity : ComponentActivity() {
             var serverFiles by remember { mutableStateOf<List<WebDavClient.ServerNode>>(emptyList()) }
             var isBrowserLoading by remember { mutableStateOf(false) }
 
+            var showUpdateDialog by remember { mutableStateOf(false) }
+            var updateUrl by remember { mutableStateOf<String?>(null) }
+
             var lastMainBackPressTime by remember { mutableStateOf(0L) }
             BackHandler {
                 if (currentMode == "Client") {
@@ -231,6 +239,74 @@ class MainActivity : ComponentActivity() {
                             .fillMaxSize()
                             .padding(16.dp)
                     ) {
+                        // Header Row with App Title and Update Button
+                        Row(
+                            modifier = Modifier.fillMaxWidth().padding(bottom = 8.dp),
+                            horizontalArrangement = Arrangement.SpaceBetween,
+                            verticalAlignment = Alignment.CenterVertically
+                        ) {
+                            Text("StreamCast", fontSize = 24.sp, fontWeight = FontWeight.Bold, color = Color.White)
+                            
+                            var isCheckingUpdate by remember { mutableStateOf(false) }
+                            Button(
+                                onClick = {
+                                    isCheckingUpdate = true
+                                    scope.launch(Dispatchers.IO) {
+                                        try {
+                                            val url = URL("https://api.github.com/repos/Sudharsan4449/stream/releases/latest")
+                                            val conn = url.openConnection() as HttpURLConnection
+                                            conn.requestMethod = "GET"
+                                            conn.setRequestProperty("Accept", "application/vnd.github.v3+json")
+                                            if (conn.responseCode == 200) {
+                                                val response = conn.inputStream.bufferedReader().use { it.readText() }
+                                                val json = JSONObject(response)
+                                                val tagName = json.optString("tag_name", "")
+                                                val apkUrl = json.optJSONArray("assets")?.let { assets ->
+                                                    if (assets.length() > 0) {
+                                                        assets.getJSONObject(0).optString("browser_download_url")
+                                                    } else null
+                                                } ?: json.optString("html_url")
+                                                
+                                                val latestVersion = tagName.removePrefix("v")
+                                                val currentVersion = "1.0"
+                                                
+                                                withContext(Dispatchers.Main) {
+                                                    isCheckingUpdate = false
+                                                    if (latestVersion.isNotEmpty() && latestVersion != currentVersion) {
+                                                        updateUrl = apkUrl
+                                                        showUpdateDialog = true
+                                                    } else {
+                                                        Toast.makeText(context, "App is up to date!", Toast.LENGTH_SHORT).show()
+                                                    }
+                                                }
+                                            } else {
+                                                withContext(Dispatchers.Main) {
+                                                    isCheckingUpdate = false
+                                                    Toast.makeText(context, "Failed to check for updates", Toast.LENGTH_SHORT).show()
+                                                }
+                                            }
+                                        } catch (e: Exception) {
+                                            e.printStackTrace()
+                                            withContext(Dispatchers.Main) {
+                                                isCheckingUpdate = false
+                                                Toast.makeText(context, "Error checking updates", Toast.LENGTH_SHORT).show()
+                                            }
+                                        }
+                                    }
+                                },
+                                colors = ButtonDefaults.buttonColors(containerColor = CardColor),
+                                modifier = Modifier.focusable()
+                            ) {
+                                if (isCheckingUpdate) {
+                                    CircularProgressIndicator(modifier = Modifier.size(20.dp), color = Color.White, strokeWidth = 2.dp)
+                                } else {
+                                    Icon(Icons.Default.Refresh, contentDescription = "Check for Updates", tint = Color.White)
+                                    Spacer(modifier = Modifier.width(8.dp))
+                                    Text("Check Update", color = Color.White)
+                                }
+                            }
+                        }
+
                         // Global Mode Toggle Tabs
                         TabRow(
                             selectedTabIndex = if (currentMode == "Server") 0 else 1,
@@ -799,6 +875,36 @@ class MainActivity : ComponentActivity() {
                         }
                     }
                 }
+            }
+
+            if (showUpdateDialog) {
+                AlertDialog(
+                    onDismissRequest = { showUpdateDialog = false },
+                    title = { Text("Update Available") },
+                    text = { Text("A new version of StreamCast is available. Would you like to download it now?") },
+                    confirmButton = {
+                        Button(
+                            onClick = {
+                                showUpdateDialog = false
+                                updateUrl?.let { urlStr ->
+                                    try {
+                                        val intent = Intent(Intent.ACTION_VIEW, Uri.parse(urlStr))
+                                        context.startActivity(intent)
+                                    } catch (e: Exception) {
+                                        Toast.makeText(context, "No browser found to open link", Toast.LENGTH_LONG).show()
+                                    }
+                                }
+                            }
+                        ) {
+                            Text("Download")
+                        }
+                    },
+                    dismissButton = {
+                        TextButton(onClick = { showUpdateDialog = false }) {
+                            Text("Later")
+                        }
+                    }
+                )
             }
         }
     }
