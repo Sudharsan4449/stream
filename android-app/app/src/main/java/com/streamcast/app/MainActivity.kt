@@ -895,6 +895,7 @@ class MainActivity : ComponentActivity() {
                     text = { Text("A new version of StreamCast is available. Would you like to download it now?") },
                     confirmButton = {
                         Button(
+                            onClick = {
                                 showUpdateDialog = false
                                 updateUrl?.let { urlStr ->
                                     startDownload(urlStr)
