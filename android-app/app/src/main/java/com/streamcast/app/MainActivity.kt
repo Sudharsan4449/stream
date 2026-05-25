@@ -24,6 +24,8 @@ import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.filled.Info
 import androidx.compose.material.icons.filled.PlayArrow
 import androidx.compose.material.icons.filled.Refresh
+import androidx.compose.material.icons.filled.Delete
+import androidx.compose.material.icons.filled.Close
 import androidx.compose.material3.*
 import androidx.compose.runtime.*
 import androidx.compose.ui.Alignment
@@ -142,6 +144,12 @@ class MainActivity : ComponentActivity() {
 
             // Client-side Discovery State (TV side)
             val discoveredServers = remember { mutableStateListOf<Pair<String, Int>>() }
+            val recentServers = remember { mutableStateListOf<String>() }
+            var manualIpText by remember { mutableStateOf("") }
+
+            LaunchedEffect(Unit) {
+                recentServers.addAll(getRecentServers(context))
+            }
             var selectedServerUrl by remember { mutableStateOf<String?>(null) }
             val pathStack = remember { mutableStateListOf<String>("/") }
             var serverFiles by remember { mutableStateOf<List<WebDavClient.ServerNode>>(emptyList()) }
@@ -201,25 +209,23 @@ class MainActivity : ComponentActivity() {
                             .fillMaxSize()
                             .padding(16.dp)
                     ) {
-                        // Global Mode Toggle Tabs (Hidden on TVs to enforce standard client screen layout)
-                        if (!isTv) {
-                            TabRow(
-                                selectedTabIndex = if (currentMode == "Server") 0 else 1,
-                                modifier = Modifier.fillMaxWidth().padding(bottom = 12.dp),
-                                containerColor = CardColor,
-                                contentColor = Color.White
-                            ) {
-                                Tab(
-                                    selected = currentMode == "Server",
-                                    onClick = { currentMode = "Server" },
-                                    text = { Text("Server Mode (Phone)") }
-                                )
-                                Tab(
-                                    selected = currentMode == "Client",
-                                    onClick = { currentMode = "Client" },
-                                    text = { Text("Client Mode (TV)") }
-                                )
-                            }
+                        // Global Mode Toggle Tabs
+                        TabRow(
+                            selectedTabIndex = if (currentMode == "Server") 0 else 1,
+                            modifier = Modifier.fillMaxWidth().padding(bottom = 12.dp),
+                            containerColor = CardColor,
+                            contentColor = Color.White
+                        ) {
+                            Tab(
+                                selected = currentMode == "Server",
+                                onClick = { currentMode = "Server" },
+                                text = { Text("Server Mode (Phone)") }
+                            )
+                            Tab(
+                                selected = currentMode == "Client",
+                                onClick = { currentMode = "Client" },
+                                text = { Text("Client Mode (TV)") }
+                            )
                         }
 
                         // RENDER SCREEN MODES
@@ -473,38 +479,88 @@ class MainActivity : ComponentActivity() {
                             }
 
                             if (selectedServerUrl == null) {
-                                // 1. Scan & Discover Servers View
-                                Text(
-                                    text = "Scanning network for phone servers...",
-                                    fontSize = 13.sp,
-                                    color = Color.LightGray,
-                                    modifier = Modifier.padding(bottom = 16.dp)
-                                )
-
                                 LazyColumn(
                                     modifier = Modifier
                                         .fillMaxWidth()
                                         .weight(1f)
                                         .background(CardColor, RoundedCornerShape(8.dp))
-                                        .padding(8.dp)
+                                        .padding(16.dp)
                                 ) {
+                                    // 1. Manual Connection Input
+                                    item {
+                                        Text(
+                                            text = "Connect Manually",
+                                            fontWeight = FontWeight.Bold,
+                                            fontSize = 15.sp,
+                                            color = SecondaryAccent,
+                                            modifier = Modifier.padding(bottom = 8.dp)
+                                        )
+                                        Row(
+                                            modifier = Modifier.fillMaxWidth().padding(bottom = 16.dp),
+                                            verticalAlignment = Alignment.CenterVertically
+                                        ) {
+                                            OutlinedTextField(
+                                                value = manualIpText,
+                                                onValueChange = { manualIpText = it },
+                                                label = { Text("IP Address or URL") },
+                                                placeholder = { Text("192.168.1.5") },
+                                                modifier = Modifier.weight(1f).padding(end = 8.dp),
+                                                colors = OutlinedTextFieldDefaults.colors(
+                                                    focusedBorderColor = AccentColor,
+                                                    unfocusedBorderColor = Color.Gray,
+                                                    focusedLabelColor = AccentColor,
+                                                    unfocusedLabelColor = Color.Gray,
+                                                    focusedTextColor = Color.White,
+                                                    unfocusedTextColor = Color.White
+                                                ),
+                                                singleLine = true
+                                            )
+                                            Button(
+                                                onClick = {
+                                                    if (manualIpText.isNotBlank()) {
+                                                        var targetUrl = manualIpText.trim()
+                                                        if (!targetUrl.startsWith("http://") && !targetUrl.startsWith("https://")) {
+                                                            targetUrl = "http://$targetUrl"
+                                                        }
+                                                        if (!targetUrl.contains(":", startIndex = 7)) {
+                                                            targetUrl = "$targetUrl:8080"
+                                                        }
+                                                        addRecentServer(context, targetUrl)
+                                                        if (!recentServers.contains(targetUrl)) {
+                                                            recentServers.add(targetUrl)
+                                                        }
+                                                        selectedServerUrl = targetUrl
+                                                    } else {
+                                                        Toast.makeText(context, "Enter a valid IP or URL", Toast.LENGTH_SHORT).show()
+                                                    }
+                                                },
+                                                colors = ButtonDefaults.buttonColors(containerColor = AccentColor)
+                                            ) {
+                                                Text("Connect", color = Color.White)
+                                            }
+                                        }
+                                        Divider(color = Color(0xFF334155), thickness = 0.5.dp, modifier = Modifier.padding(vertical = 12.dp))
+                                    }
+
+                                    // 2. Discovered Servers Section
+                                    item {
+                                        Text(
+                                            text = "Discovered Servers (Scanning...)",
+                                            fontWeight = FontWeight.Bold,
+                                            fontSize = 15.sp,
+                                            color = AccentColor,
+                                            modifier = Modifier.padding(bottom = 8.dp)
+                                        )
+                                    }
+
                                     if (discoveredServers.isEmpty()) {
                                         item {
-                                            Box(
-                                                modifier = Modifier.fillMaxWidth().padding(32.dp),
-                                                contentAlignment = Alignment.Center
-                                            ) {
-                                                Column(horizontalAlignment = Alignment.CenterHorizontally) {
-                                                    CircularProgressIndicator(color = AccentColor)
-                                                    Spacer(modifier = Modifier.height(16.dp))
-                                                    Text(
-                                                        text = "No server found yet.\nMake sure the phone server is running and on the same Wi-Fi / Hotspot.",
-                                                        color = Color.Gray,
-                                                        textAlign = TextAlign.Center,
-                                                        fontSize = 14.sp
-                                                    )
-                                                }
-                                            }
+                                            Text(
+                                                text = "Searching local network...",
+                                                color = Color.Gray,
+                                                fontSize = 13.sp,
+                                                modifier = Modifier.padding(bottom = 16.dp, start = 8.dp)
+                                            )
                                         }
                                     } else {
                                         items(discoveredServers) { server ->
@@ -514,41 +570,118 @@ class MainActivity : ComponentActivity() {
                                             Card(
                                                 modifier = Modifier
                                                     .fillMaxWidth()
-                                                    .padding(8.dp)
+                                                    .padding(vertical = 4.dp)
                                                     .onFocusChanged { isFocused = it.isFocused }
                                                     .focusable()
-                                                    .clickable { selectedServerUrl = url },
+                                                    .clickable {
+                                                        addRecentServer(context, url)
+                                                        if (!recentServers.contains(url)) {
+                                                            recentServers.add(url)
+                                                        }
+                                                        selectedServerUrl = url
+                                                    },
                                                 colors = CardDefaults.cardColors(
-                                                    containerColor = if (isFocused) AccentColor else Color(0xFF334155)
+                                                    containerColor = if (isFocused) AccentColor else Color(0xFF1E293B)
                                                 )
                                             ) {
                                                 Row(
                                                     modifier = Modifier.padding(16.dp),
                                                     verticalAlignment = Alignment.CenterVertically,
                                                     horizontalArrangement = Arrangement.SpaceBetween
-                                                ) {
-                                                    Column {
-                                                        Text(
-                                                            text = "StreamCast Phone Server",
-                                                            fontWeight = FontWeight.Bold,
-                                                            color = if (isFocused) Color.Black else Color.White
-                                                        )
-                                                        Text(
-                                                            text = url,
-                                                            color = if (isFocused) Color(0xFF1E293B) else Color.LightGray,
-                                                            fontSize = 13.sp
-                                                        )
-                                                    }
-                                                    Icon(
-                                                        imageVector = Icons.Default.PlayArrow,
-                                                        contentDescription = "Connect",
-                                                        tint = if (isFocused) Color.Black else AccentColor
-                                                    )
-                                                }
-                                            }
-                                        }
-                                    }
-                                }
+                                                 ) {
+                                                     Column {
+                                                         Text(
+                                                             text = "StreamCast Phone Server",
+                                                             fontWeight = FontWeight.Bold,
+                                                             color = if (isFocused) Color.Black else Color.White
+                                                         )
+                                                         Text(
+                                                             text = url,
+                                                             color = if (isFocused) Color(0xFF1E293B) else Color.LightGray,
+                                                             fontSize = 13.sp
+                                                         )
+                                                     }
+                                                     Icon(
+                                                         imageVector = Icons.Default.PlayArrow,
+                                                         contentDescription = "Connect",
+                                                         tint = if (isFocused) Color.Black else AccentColor
+                                                     )
+                                                 }
+                                             }
+                                         }
+                                     }
+
+                                     // 3. Recent Servers Section
+                                     item {
+                                         Divider(color = Color(0xFF334155), thickness = 0.5.dp, modifier = Modifier.padding(vertical = 12.dp))
+                                         Text(
+                                             text = "Recent Connections",
+                                             fontWeight = FontWeight.Bold,
+                                             fontSize = 15.sp,
+                                             color = SecondaryAccent,
+                                             modifier = Modifier.padding(bottom = 8.dp)
+                                         )
+                                     }
+
+                                     if (recentServers.isEmpty()) {
+                                         item {
+                                             Text(
+                                                 text = "No recent connections saved.",
+                                                 color = Color.Gray,
+                                                 fontSize = 13.sp,
+                                                 modifier = Modifier.padding(start = 8.dp)
+                                             )
+                                         }
+                                     } else {
+                                         items(recentServers) { url ->
+                                             var isFocused by remember { mutableStateOf(false) }
+                                             Card(
+                                                 modifier = Modifier
+                                                     .fillMaxWidth()
+                                                     .padding(vertical = 4.dp)
+                                                     .onFocusChanged { isFocused = it.isFocused }
+                                                     .focusable()
+                                                     .clickable {
+                                                         selectedServerUrl = url
+                                                     },
+                                                 colors = CardDefaults.cardColors(
+                                                     containerColor = if (isFocused) SecondaryAccent else Color(0xFF1E293B)
+                                                 )
+                                             ) {
+                                                 Row(
+                                                     modifier = Modifier.padding(16.dp),
+                                                     verticalAlignment = Alignment.CenterVertically,
+                                                     horizontalArrangement = Arrangement.SpaceBetween
+                                                 ) {
+                                                     Column(modifier = Modifier.weight(1f)) {
+                                                         Text(
+                                                             text = "Saved Server Connection",
+                                                             fontWeight = FontWeight.Bold,
+                                                             color = if (isFocused) Color.Black else Color.White
+                                                         )
+                                                         Text(
+                                                             text = url,
+                                                             color = if (isFocused) Color(0xFF1E293B) else Color.LightGray,
+                                                             fontSize = 13.sp
+                                                         )
+                                                     }
+                                                     IconButton(
+                                                         onClick = {
+                                                             removeRecentServer(context, url)
+                                                             recentServers.remove(url)
+                                                         }
+                                                     ) {
+                                                         Icon(
+                                                             imageVector = Icons.Default.Delete,
+                                                             contentDescription = "Delete",
+                                                             tint = if (isFocused) Color.Black else ErrorColor
+                                                         )
+                                                     }
+                                                 }
+                                             }
+                                         }
+                                     }
+                                 }
                             } else {
                                 // 2. WebDAV Files and Directories Browser
                                 if (isBrowserLoading) {
@@ -719,6 +852,28 @@ class MainActivity : ComponentActivity() {
         val units = arrayOf("B", "KB", "MB", "GB", "TB")
         val digitGroups = (Math.log10(bytes.toDouble()) / Math.log10(1024.0)).toInt()
         return String.format("%.2f %s", bytes / Math.pow(1024.0, digitGroups.toDouble()), units[digitGroups])
+    }
+
+    private fun getRecentServers(context: Context): List<String> {
+        val prefs = context.getSharedPreferences(PREFS_NAME, Context.MODE_PRIVATE)
+        val set = prefs.getStringSet("recent_servers", emptySet()) ?: emptySet()
+        return set.toList().sorted()
+    }
+
+    private fun addRecentServer(context: Context, url: String) {
+        val prefs = context.getSharedPreferences(PREFS_NAME, Context.MODE_PRIVATE)
+        val set = prefs.getStringSet("recent_servers", emptySet())?.toMutableSet() ?: mutableSetOf()
+        if (set.add(url)) {
+            prefs.edit().putStringSet("recent_servers", set).apply()
+        }
+    }
+
+    private fun removeRecentServer(context: Context, url: String) {
+        val prefs = context.getSharedPreferences(PREFS_NAME, Context.MODE_PRIVATE)
+        val set = prefs.getStringSet("recent_servers", emptySet())?.toMutableSet() ?: mutableSetOf()
+        if (set.remove(url)) {
+            prefs.edit().putStringSet("recent_servers", set).apply()
+        }
     }
 
     override fun onDestroy() {

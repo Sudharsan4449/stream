@@ -42,23 +42,53 @@ class StreamingService : Service() {
     override fun onBind(intent: Intent?): IBinder? = null
 
     override fun onStartCommand(intent: Intent?, flags: Int, startId: Int): Int {
-        when (intent?.action) {
-            ACTION_START -> {
-                val uriString = intent.getStringExtra(EXTRA_TREE_URI)
-                val port = intent.getIntExtra(EXTRA_PORT, 8080)
-                if (uriString != null) {
-                    val uri = Uri.parse(uriString)
-                    isServiceRunning = true
-                    activeTreeUri = uri
-                    activePort = port
-                    startServiceForeground(uri, port)
+        if (intent == null || intent.action == null) {
+            val lastUriStr = loadLastUri()
+            val lastPort = loadLastPort()
+            if (lastUriStr != null) {
+                val uri = Uri.parse(lastUriStr)
+                isServiceRunning = true
+                activeTreeUri = uri
+                activePort = lastPort
+                startServiceForeground(uri, lastPort)
+            } else {
+                stopSelf()
+            }
+        } else {
+            when (intent.action) {
+                ACTION_START -> {
+                    val uriString = intent.getStringExtra(EXTRA_TREE_URI)
+                    val port = intent.getIntExtra(EXTRA_PORT, 8080)
+                    if (uriString != null) {
+                        val uri = Uri.parse(uriString)
+                        isServiceRunning = true
+                        activeTreeUri = uri
+                        activePort = port
+                        saveStartParams(uriString, port)
+                        startServiceForeground(uri, port)
+                    }
+                }
+                ACTION_STOP -> {
+                    stopServiceInternal()
                 }
             }
-            ACTION_STOP -> {
-                stopServiceInternal()
-            }
         }
-        return START_NOT_STICKY
+        return START_STICKY
+    }
+
+    private fun saveStartParams(uriString: String, port: Int) {
+        val prefs = getSharedPreferences("StreamCastPrefs", Context.MODE_PRIVATE)
+        prefs.edit().putString("saved_uri", uriString).putInt("saved_port", port).apply()
+    }
+
+    private fun loadLastUri(): String? {
+        val prefs = getSharedPreferences("StreamCastPrefs", Context.MODE_PRIVATE)
+        return prefs.getString("saved_uri", null)
+    }
+
+    private fun loadLastPort(): Int {
+        val prefs = getSharedPreferences("StreamCastPrefs", Context.MODE_PRIVATE)
+        return prefs.getInt("saved_port", 8080)
     }
 
     private var nsdHelper: NsdHelper? = null
@@ -127,7 +157,13 @@ class StreamingService : Service() {
         }
 
         val wifiManager = applicationContext.getSystemService(Context.WIFI_SERVICE) as WifiManager
-        wifiLock = wifiManager.createWifiLock(WifiManager.WIFI_MODE_FULL_HIGH_PERF, "StreamCast::ServerWifiLock").apply {
+        val lockType = if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.Q) {
+            WifiManager.WIFI_MODE_FULL_LOW_LATENCY
+        } else {
+            @Suppress("DEPRECATION")
+            WifiManager.WIFI_MODE_FULL_HIGH_PERF
+        }
+        wifiLock = wifiManager.createWifiLock(lockType, "StreamCast::ServerWifiLock").apply {
             acquire()
         }
     }
