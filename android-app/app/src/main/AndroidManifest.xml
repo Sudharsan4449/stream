@@ -20,6 +20,9 @@
          but we keep legacy ones for compatibility on Android 7 to 10 -->
     <uses-permission android:name="android.permission.READ_EXTERNAL_STORAGE" 
         android:maxSdkVersion="32" />
+        
+    <!-- Permission to install updates internally -->
+    <uses-permission android:name="android.permission.REQUEST_INSTALL_PACKAGES" />
 
     <!-- TV Hardware requirements declaration -->
     <uses-feature android:name="android.software.leanback" android:required="false" />
@@ -58,5 +61,16 @@
             android:exported="false"
             android:foregroundServiceType="mediaPlayback" />
             
+        <!-- FileProvider for In-App Updates -->
+        <provider
+            android:name="androidx.core.content.FileProvider"
+            android:authorities="${applicationId}.provider"
+            android:exported="false"
+            android:grantUriPermissions="true">
+            <meta-data
+                android:name="android.support.FILE_PROVIDER_PATHS"
+                android:resource="@xml/provider_paths" />
+        </provider>
+
     </application>
 </manifest>

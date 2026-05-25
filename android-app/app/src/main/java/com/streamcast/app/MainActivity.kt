@@ -54,6 +54,12 @@ import kotlinx.coroutines.withContext
 import org.json.JSONObject
 import java.net.URL
 import java.net.HttpURLConnection
+import android.app.DownloadManager
+import android.content.BroadcastReceiver
+import android.content.IntentFilter
+import android.os.Environment
+import androidx.core.content.FileProvider
+import java.io.File
 
 class MainActivity : ComponentActivity() {
 
@@ -889,15 +895,9 @@ class MainActivity : ComponentActivity() {
                     text = { Text("A new version of StreamCast is available. Would you like to download it now?") },
                     confirmButton = {
                         Button(
-                            onClick = {
                                 showUpdateDialog = false
                                 updateUrl?.let { urlStr ->
-                                    try {
-                                        val intent = Intent(Intent.ACTION_VIEW, Uri.parse(urlStr))
-                                        context.startActivity(intent)
-                                    } catch (e: Exception) {
-                                        Toast.makeText(context, "No browser found to open link", Toast.LENGTH_LONG).show()
-                                    }
+                                    startDownload(urlStr)
                                 }
                             }
                         ) {
@@ -911,6 +911,58 @@ class MainActivity : ComponentActivity() {
                     }
                 )
             }
+        }
+    }
+
+    private fun startDownload(url: String) {
+        val file = File(Environment.getExternalStoragePublicDirectory(Environment.DIRECTORY_DOWNLOADS), "streamcast_update.apk")
+        if (file.exists()) {
+            file.delete()
+        }
+
+        val request = DownloadManager.Request(Uri.parse(url))
+        request.setTitle("StreamCast Update")
+        request.setDescription("Downloading new version...")
+        request.setDestinationInExternalPublicDir(Environment.DIRECTORY_DOWNLOADS, "streamcast_update.apk")
+        request.setNotificationVisibility(DownloadManager.Request.VISIBILITY_VISIBLE_NOTIFY_COMPLETED)
+        
+        val manager = getSystemService(Context.DOWNLOAD_SERVICE) as DownloadManager
+        val downloadId = manager.enqueue(request)
+        
+        val onComplete = object : BroadcastReceiver() {
+            override fun onReceive(context: Context, intent: Intent) {
+                val id = intent.getLongExtra(DownloadManager.EXTRA_DOWNLOAD_ID, -1)
+                if (downloadId == id) {
+                    installApk()
+                    context.unregisterReceiver(this)
+                }
+            }
+        }
+        
+        if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.TIRAMISU) {
+            registerReceiver(onComplete, IntentFilter(DownloadManager.ACTION_DOWNLOAD_COMPLETE), Context.RECEIVER_EXPORTED)
+        } else {
+            registerReceiver(onComplete, IntentFilter(DownloadManager.ACTION_DOWNLOAD_COMPLETE))
+        }
+        
+        Toast.makeText(this, "Downloading update...", Toast.LENGTH_SHORT).show()
+    }
+
+    private fun installApk() {
+        try {
+            val file = File(Environment.getExternalStoragePublicDirectory(Environment.DIRECTORY_DOWNLOADS), "streamcast_update.apk")
+            if (file.exists()) {
+                val uri = FileProvider.getUriForFile(this, "${packageName}.provider", file)
+                val intent = Intent(Intent.ACTION_VIEW)
+                intent.setDataAndType(uri, "application/vnd.android.package-archive")
+                intent.flags = Intent.FLAG_ACTIVITY_NEW_TASK or Intent.FLAG_GRANT_READ_URI_PERMISSION
+                startActivity(intent)
+            } else {
+                Toast.makeText(this, "Update file not found", Toast.LENGTH_SHORT).show()
+            }
+        } catch (e: Exception) {
+            e.printStackTrace()
+            Toast.makeText(this, "Failed to launch installer", Toast.LENGTH_SHORT).show()
         }
     }
 
