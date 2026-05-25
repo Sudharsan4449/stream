@@ -44,6 +44,12 @@ import androidx.media3.ui.PlayerView
 import kotlinx.coroutines.delay
 import kotlinx.coroutines.launch
 import java.net.URLDecoder
+import androidx.compose.ui.graphics.toArgb
+import androidx.media3.ui.CaptionStyleCompat
+import androidx.compose.foundation.lazy.LazyColumn
+import androidx.compose.foundation.lazy.items
+import androidx.media3.common.TrackSelectionOverride
+import androidx.media3.common.Tracks
 
 class PlayerActivity : ComponentActivity() {
 
@@ -58,6 +64,9 @@ class PlayerActivity : ComponentActivity() {
     private var lastBackPressTime = 0L
     private var videoUrl: String = ""
     private var controlsResetCounter by mutableStateOf(0)
+    
+    private var subtitleSizeState by mutableStateOf(16f)
+    private var subtitleStyleState by mutableStateOf("Normal")
 
     companion object {
         const val EXTRA_VIDEO_URL = "EXTRA_VIDEO_URL"
@@ -94,9 +103,14 @@ class PlayerActivity : ComponentActivity() {
             val showControls = showControlsState
             val brightness = brightnessState
             val resizeMode = resizeModeState
+            val subtitleSize = subtitleSizeState
+            val subtitleStyle = subtitleStyleState
 
             val coroutineScope = rememberCoroutineScope()
             var controlsTimeoutJob by remember { mutableStateOf<kotlinx.coroutines.Job?>(null) }
+            
+            var showAudioDialog by remember { mutableStateOf(false) }
+            var showSubtitleDialog by remember { mutableStateOf(false) }
 
             fun resetControlsTimer() {
                 showControlsState = true
@@ -139,6 +153,15 @@ class PlayerActivity : ComponentActivity() {
                     },
                     update = { view ->
                         view.resizeMode = resizeMode
+                        view.player = this@PlayerActivity.player
+                        view.subtitleView?.let { subView ->
+                            subView.setFixedTextSize(android.util.TypedValue.COMPLEX_UNIT_SP, subtitleSize)
+                            when (subtitleStyle) {
+                                "Normal" -> subView.setStyle(CaptionStyleCompat.DEFAULT)
+                                "Yellow" -> subView.setStyle(CaptionStyleCompat(Color.Yellow.toArgb(), Color.Transparent.toArgb(), Color.Transparent.toArgb(), CaptionStyleCompat.EDGE_TYPE_DROP_SHADOW, Color.Black.toArgb(), null))
+                                "BlackBG" -> subView.setStyle(CaptionStyleCompat(Color.White.toArgb(), Color.Black.copy(alpha = 0.5f).toArgb(), Color.Transparent.toArgb(), CaptionStyleCompat.EDGE_TYPE_NONE, Color.Black.toArgb(), null))
+                            }
+                        }
                     },
                     modifier = Modifier.fillMaxSize()
                 )
@@ -395,11 +418,143 @@ class PlayerActivity : ComponentActivity() {
                                             color = if (isBrightnessFocused) Color.Black else Color.White
                                         )
                                     }
+
+                                    // Audio Track Button
+                                    var isAudioFocused by remember { mutableStateOf(false) }
+                                    Button(
+                                        onClick = {
+                                            showAudioDialog = true
+                                            resetControlsTimer()
+                                        },
+                                        colors = ButtonDefaults.buttonColors(
+                                            containerColor = if (isAudioFocused) Color(0xFF10B981) else Color(0xFF1E293B)
+                                        ),
+                                        modifier = Modifier
+                                            .onFocusChanged { isAudioFocused = it.isFocused }
+                                            .focusable()
+                                    ) {
+                                        Text("Audio", color = if (isAudioFocused) Color.Black else Color.White)
+                                    }
+
+                                    // Subtitle Style Button
+                                    var isSubtitleFocused by remember { mutableStateOf(false) }
+                                    Button(
+                                        onClick = {
+                                            showSubtitleDialog = true
+                                            resetControlsTimer()
+                                        },
+                                        colors = ButtonDefaults.buttonColors(
+                                            containerColor = if (isSubtitleFocused) Color(0xFF10B981) else Color(0xFF1E293B)
+                                        ),
+                                        modifier = Modifier
+                                            .onFocusChanged { isSubtitleFocused = it.isFocused }
+                                            .focusable()
+                                    ) {
+                                        Text("Subtitles", color = if (isSubtitleFocused) Color.Black else Color.White)
+                                    }
                                 }
                             }
                         }
                     }
                 }
+            }
+
+            if (showAudioDialog) {
+                AlertDialog(
+                    onDismissRequest = { showAudioDialog = false },
+                    title = { Text("Select Audio Track") },
+                    text = {
+                        LazyColumn {
+                            val audioGroups = player?.currentTracks?.groups?.filter { it.type == C.TRACK_TYPE_AUDIO } ?: emptyList()
+                            if (audioGroups.isEmpty()) {
+                                item { Text("No additional audio tracks found.") }
+                            } else {
+                                items(audioGroups) { group ->
+                                    for (i in 0 until group.length) {
+                                        val format = group.getTrackFormat(i)
+                                        val isSelected = group.isTrackSelected(i)
+                                        val language = format.language ?: "Unknown"
+                                        val label = format.label ?: "Track ${i + 1}"
+                                        
+                                        var isBtnFocused by remember { mutableStateOf(false) }
+                                        Button(
+                                            onClick = {
+                                                player?.let { p ->
+                                                    p.trackSelectionParameters = p.trackSelectionParameters
+                                                        .buildUpon()
+                                                        .setOverrideForType(TrackSelectionOverride(group.mediaTrackGroup, i))
+                                                        .build()
+                                                }
+                                                showAudioDialog = false
+                                                resetControlsTimer()
+                                            },
+                                            colors = ButtonDefaults.buttonColors(containerColor = if (isBtnFocused) Color(0xFF10B981) else Color(0xFF1E293B)),
+                                            modifier = Modifier
+                                                .fillMaxWidth()
+                                                .padding(vertical = 4.dp)
+                                                .onFocusChanged { isBtnFocused = it.isFocused }
+                                                .focusable()
+                                        ) {
+                                            Text(text = "$language - $label" + if (isSelected) " (Selected)" else "", color = if (isBtnFocused) Color.Black else Color.White)
+                                        }
+                                    }
+                                }
+                            }
+                        }
+                    },
+                    confirmButton = {
+                        var isCloseFocused by remember { mutableStateOf(false) }
+                        TextButton(
+                            onClick = { showAudioDialog = false },
+                            modifier = Modifier
+                                .onFocusChanged { isCloseFocused = it.isFocused }
+                                .focusable()
+                        ) {
+                            Text("Close", color = if (isCloseFocused) Color(0xFF10B981) else Color.White)
+                        }
+                    }
+                )
+            }
+
+            if (showSubtitleDialog) {
+                AlertDialog(
+                    onDismissRequest = { showSubtitleDialog = false },
+                    title = { Text("Subtitle Customization") },
+                    text = {
+                        Column {
+                            Text("Size:", fontWeight = FontWeight.Bold)
+                            Row(modifier = Modifier.padding(vertical = 8.dp), horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+                                listOf(12f to "Small", 16f to "Normal", 24f to "Large").forEach { (size, label) ->
+                                    var isBtnFocused by remember { mutableStateOf(false) }
+                                    Button(
+                                        onClick = { subtitleSizeState = size },
+                                        colors = ButtonDefaults.buttonColors(containerColor = if (subtitleSize == size) Color.Gray else if (isBtnFocused) Color(0xFF10B981) else Color(0xFF1E293B)),
+                                        modifier = Modifier.onFocusChanged { isBtnFocused = it.isFocused }.focusable()
+                                    ) { Text(label, color = if (isBtnFocused) Color.Black else Color.White) }
+                                }
+                            }
+                            Spacer(modifier = Modifier.height(8.dp))
+                            Text("Style:", fontWeight = FontWeight.Bold)
+                            Row(modifier = Modifier.padding(vertical = 8.dp), horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+                                listOf("Normal", "Yellow", "BlackBG").forEach { style ->
+                                    var isBtnFocused by remember { mutableStateOf(false) }
+                                    Button(
+                                        onClick = { subtitleStyleState = style },
+                                        colors = ButtonDefaults.buttonColors(containerColor = if (subtitleStyle == style) Color.Gray else if (isBtnFocused) Color(0xFF10B981) else Color(0xFF1E293B)),
+                                        modifier = Modifier.onFocusChanged { isBtnFocused = it.isFocused }.focusable()
+                                    ) { Text(style, color = if (isBtnFocused) Color.Black else Color.White) }
+                                }
+                            }
+                        }
+                    },
+                    confirmButton = {
+                        var isCloseFocused by remember { mutableStateOf(false) }
+                        TextButton(
+                            onClick = { showSubtitleDialog = false },
+                            modifier = Modifier.onFocusChanged { isCloseFocused = it.isFocused }.focusable()
+                        ) { Text("Close", color = if (isCloseFocused) Color(0xFF10B981) else Color.White) }
+                    }
+                )
             }
         }
     }
