@@ -279,17 +279,22 @@ class MainActivity : ComponentActivity() {
                                                         Toast.makeText(context, "App is up to date!", Toast.LENGTH_SHORT).show()
                                                     }
                                                 }
+                                            } else if (conn.responseCode == 404) {
+                                                withContext(Dispatchers.Main) {
+                                                    isCheckingUpdate = false
+                                                    Toast.makeText(context, "App is up to date! (No releases yet)", Toast.LENGTH_SHORT).show()
+                                                }
                                             } else {
                                                 withContext(Dispatchers.Main) {
                                                     isCheckingUpdate = false
-                                                    Toast.makeText(context, "Failed to check for updates", Toast.LENGTH_SHORT).show()
+                                                    Toast.makeText(context, "Failed to check for updates (Code: ${conn.responseCode})", Toast.LENGTH_SHORT).show()
                                                 }
                                             }
                                         } catch (e: Exception) {
                                             e.printStackTrace()
                                             withContext(Dispatchers.Main) {
                                                 isCheckingUpdate = false
-                                                Toast.makeText(context, "Error checking updates", Toast.LENGTH_SHORT).show()
+                                                Toast.makeText(context, "Network error: ${e.localizedMessage}", Toast.LENGTH_SHORT).show()
                                             }
                                         }
                                     }
