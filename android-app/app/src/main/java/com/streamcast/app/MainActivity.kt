@@ -55,6 +55,7 @@ class MainActivity : ComponentActivity() {
     private val KEY_SAVED_URI = "saved_uri"
     private var nsdHelper: NsdHelper? = null
 
+    @OptIn(androidx.compose.material3.ExperimentalMaterial3Api::class)
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
 
@@ -505,14 +506,6 @@ class MainActivity : ComponentActivity() {
                                                 label = { Text("IP Address or URL") },
                                                 placeholder = { Text("192.168.1.5") },
                                                 modifier = Modifier.weight(1f).padding(end = 8.dp),
-                                                colors = OutlinedTextFieldDefaults.colors(
-                                                    focusedBorderColor = AccentColor,
-                                                    unfocusedBorderColor = Color.Gray,
-                                                    focusedLabelColor = AccentColor,
-                                                    unfocusedLabelColor = Color.Gray,
-                                                    focusedTextColor = Color.White,
-                                                    unfocusedTextColor = Color.White
-                                                ),
                                                 singleLine = true
                                             )
                                             Button(
@@ -522,7 +515,7 @@ class MainActivity : ComponentActivity() {
                                                         if (!targetUrl.startsWith("http://") && !targetUrl.startsWith("https://")) {
                                                             targetUrl = "http://$targetUrl"
                                                         }
-                                                        if (!targetUrl.contains(":", startIndex = 7)) {
+                                                        if (targetUrl.indexOf(':', 7) == -1) {
                                                             targetUrl = "$targetUrl:8080"
                                                         }
                                                         addRecentServer(context, targetUrl)

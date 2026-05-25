@@ -53,6 +53,7 @@ class PlayerActivity : ComponentActivity() {
     private var brightnessState by mutableStateOf(0.8f)
     private var resizeModeState by mutableStateOf(AspectRatioFrameLayout.RESIZE_MODE_FIT)
     private var lastBackPressTime = 0L
+    private var videoUrl: String = ""
 
     companion object {
         const val EXTRA_VIDEO_URL = "EXTRA_VIDEO_URL"
@@ -66,7 +67,7 @@ class PlayerActivity : ComponentActivity() {
         window.addFlags(WindowManager.LayoutParams.FLAG_KEEP_SCREEN_ON)
         setScreenBrightness(brightnessState)
 
-        val videoUrl = intent.getStringExtra(EXTRA_VIDEO_URL) ?: ""
+        videoUrl = intent.getStringExtra(EXTRA_VIDEO_URL) ?: ""
         val subtitleUrl = intent.getStringExtra(EXTRA_SUBTITLE_URL)
         val videoTitle = try {
             URLDecoder.decode(videoUrl, "UTF-8").substringAfterLast('/')
@@ -161,7 +162,10 @@ class PlayerActivity : ComponentActivity() {
                         ) {
                             var isExitFocused by remember { mutableStateOf(false) }
                             Button(
-                                onClick = { finish() },
+                                onClick = {
+                                    savePlaybackPosition()
+                                    finish()
+                                },
                                 colors = ButtonDefaults.buttonColors(
                                     containerColor = if (isExitFocused) Color.Red else Color(0xFFDC2626)
                                 ),
@@ -391,6 +395,11 @@ class PlayerActivity : ComponentActivity() {
 
         player?.setMediaItem(mediaItemBuilder.build())
         player?.prepare()
+        val savedPos = getSavedPlaybackPosition(videoUrl)
+        if (savedPos > 0) {
+            player?.seekTo(savedPos)
+            Toast.makeText(this, "Resuming from ${formatTime(savedPos)}", Toast.LENGTH_SHORT).show()
+        }
         player?.playWhenReady = true
     }
 
@@ -466,6 +475,7 @@ class PlayerActivity : ComponentActivity() {
                     } else {
                         val now = System.currentTimeMillis()
                         if (now - lastBackPressTime < 2000) {
+                            savePlaybackPosition()
                             finish()
                         } else {
                             lastBackPressTime = now
@@ -494,8 +504,26 @@ class PlayerActivity : ComponentActivity() {
         }
     }
 
+    private fun savePlaybackPosition() {
+        val p = player ?: return
+        val currentPos = p.currentPosition
+        if (videoUrl.isNotEmpty() && p.duration > 0 && currentPos < p.duration - 5000) {
+            val prefs = getSharedPreferences("PlayerPlaybackPrefs", Context.MODE_PRIVATE)
+            prefs.edit().putLong(videoUrl, currentPos).apply()
+        } else if (videoUrl.isNotEmpty() && currentPos >= p.duration - 5000) {
+            val prefs = getSharedPreferences("PlayerPlaybackPrefs", Context.MODE_PRIVATE)
+            prefs.edit().remove(videoUrl).apply()
+        }
+    }
+
+    private fun getSavedPlaybackPosition(url: String): Long {
+        val prefs = getSharedPreferences("PlayerPlaybackPrefs", Context.MODE_PRIVATE)
+        return prefs.getLong(url, 0L)
+    }
+
     override fun onPause() {
         super.onPause()
+        savePlaybackPosition()
         player?.playWhenReady = false
     }
 
