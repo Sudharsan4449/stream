@@ -508,7 +508,8 @@ class MainActivity : ComponentActivity() {
                                         }
                                     } else {
                                         items(discoveredServers) { server ->
-                                            val url = "http://${server.first}:${server.second}"
+                                            val ip = if (server.first.contains(":")) "[${server.first}]" else server.first
+                                            val url = "http://$ip:${server.second}"
                                             var isFocused by remember { mutableStateOf(false) }
                                             Card(
                                                 modifier = Modifier

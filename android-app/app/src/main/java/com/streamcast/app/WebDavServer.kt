@@ -51,6 +51,7 @@ class WebDavServer(
                 allowHeader("Overwrite")
                 allowMethod(HttpMethod("PROPFIND"))
                 allowMethod(HttpMethod("OPTIONS"))
+                allowMethod(HttpMethod.Post)
             }
 
             routing {
@@ -77,6 +78,15 @@ class WebDavServer(
                         val decodedPath = URLDecoder.decode(call.request.path(), "UTF-8")
                         handlePropFind(call, decodedPath)
                     }
+                }
+
+                // POST handlers (Fallback for Android HttpURLConnection which rejects PROPFIND)
+                io.ktor.server.routing.post("/") {
+                    handlePropFind(call, "/")
+                }
+                io.ktor.server.routing.post("{...}") {
+                    val decodedPath = URLDecoder.decode(call.request.path(), "UTF-8")
+                    handlePropFind(call, decodedPath)
                 }
 
                 // GET handlers (media streams and subtitles)

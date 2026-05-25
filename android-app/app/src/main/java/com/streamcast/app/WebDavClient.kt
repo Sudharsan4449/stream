@@ -28,11 +28,14 @@ object WebDavClient {
             val url = URL(fullUrl)
             
             connection = (url.openConnection() as HttpURLConnection).apply {
-                requestMethod = "PROPFIND"
+                requestMethod = "POST"
                 setRequestProperty("Depth", "1")
+                // We send an empty body, but some HttpURLConnection versions 
+                // require doOutput=true for POST even with an empty body.
                 connectTimeout = 5000
                 readTimeout = 5000
                 doInput = true
+                doOutput = true
             }
 
             val responseCode = connection.responseCode
@@ -70,7 +73,7 @@ object WebDavClient {
             var insideResponse = false
 
             while (eventType != XmlPullParser.END_DOCUMENT) {
-                val tagName = parser.name
+                val tagName = parser.name ?: ""
                 when (eventType) {
                     XmlPullParser.START_TAG -> {
                         if (tagName.equals("response", ignoreCase = true) || tagName.endsWith(":response")) {
