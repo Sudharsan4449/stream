@@ -27,6 +27,8 @@ import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.focus.onFocusChanged
 import androidx.compose.ui.graphics.Color
+import androidx.compose.ui.input.pointer.pointerInput
+import androidx.compose.foundation.gestures.detectTapGestures
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
@@ -54,6 +56,7 @@ class PlayerActivity : ComponentActivity() {
     private var resizeModeState by mutableStateOf(AspectRatioFrameLayout.RESIZE_MODE_FIT)
     private var lastBackPressTime = 0L
     private var videoUrl: String = ""
+    private var controlsResetCounter by mutableStateOf(0)
 
     companion object {
         const val EXTRA_VIDEO_URL = "EXTRA_VIDEO_URL"
@@ -151,7 +154,9 @@ class PlayerActivity : ComponentActivity() {
                             .fillMaxSize()
                             .background(Color.Black.copy(alpha = 0.6f))
                             .padding(32.dp)
-                            .clickable { resetControlsTimer() }
+                            .pointerInput(Unit) {
+                                detectTapGestures(onTap = { resetControlsTimer() })
+                            }
                     ) {
                         // --- TOP BAR: Exit Button & Title ---
                         Row(
@@ -441,32 +446,32 @@ class PlayerActivity : ComponentActivity() {
 
     // Capture TV Remote controls
     override fun onKeyDown(keyCode: Int, event: KeyEvent?): Boolean {
-        // If controls are hidden, any navigation/action key wakes the controls first
-        if (!showControlsState && isNavigationOrActionKey(keyCode)) {
-            showControlsState = true
-            return true
-        }
-
         player?.let { p ->
             when (keyCode) {
+                KeyEvent.KEYCODE_DPAD_LEFT -> {
+                    if (!showControlsState) {
+                        seekBackward()
+                        showControlsState = true
+                        return true
+                    }
+                }
+                KeyEvent.KEYCODE_DPAD_RIGHT -> {
+                    if (!showControlsState) {
+                        seekForward()
+                        showControlsState = true
+                        return true
+                    }
+                }
                 KeyEvent.KEYCODE_DPAD_CENTER, KeyEvent.KEYCODE_ENTER -> {
-                    // Let focusable items handle their clicks if controls are visible.
-                    // If we want a global play/pause toggle when no buttons are selected, we fallback here.
-                    // But in standard Compose focus flow, returning false lets the focused component consume it.
+                    if (!showControlsState) {
+                        showControlsState = true
+                        return true
+                    }
                     return false
                 }
                 KeyEvent.KEYCODE_MEDIA_PLAY_PAUSE -> {
                     togglePlayPause()
                     return true
-                }
-                KeyEvent.KEYCODE_DPAD_LEFT -> {
-                    // If controls are visible, we let focus navigate left unless we want to force seek
-                    // For standard TV UX, left/right triggers seek if controls are hidden.
-                    // If controls are visible, we can still handle seek, but let's seek directly if no focus matches.
-                    return false
-                }
-                KeyEvent.KEYCODE_DPAD_RIGHT -> {
-                    return false
                 }
                 KeyEvent.KEYCODE_BACK -> {
                     if (!showControlsState) {
@@ -485,7 +490,12 @@ class PlayerActivity : ComponentActivity() {
                         return true
                     }
                 }
-                else -> {}
+                else -> {
+                    if (!showControlsState && isNavigationOrActionKey(keyCode)) {
+                        showControlsState = true
+                        return true
+                    }
+                }
             }
         }
         return super.onKeyDown(keyCode, event)
