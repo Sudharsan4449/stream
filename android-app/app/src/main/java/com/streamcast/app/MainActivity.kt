@@ -13,6 +13,7 @@ import androidx.activity.ComponentActivity
 import androidx.activity.compose.rememberLauncherForActivityResult
 import androidx.activity.compose.setContent
 import androidx.activity.result.contract.ActivityResultContracts
+import androidx.activity.compose.BackHandler
 import androidx.compose.foundation.Image
 import androidx.compose.foundation.background
 import androidx.compose.foundation.clickable
@@ -155,6 +156,26 @@ class MainActivity : ComponentActivity() {
             val pathStack = remember { mutableStateListOf<String>("/") }
             var serverFiles by remember { mutableStateOf<List<WebDavClient.ServerNode>>(emptyList()) }
             var isBrowserLoading by remember { mutableStateOf(false) }
+
+            var lastMainBackPressTime by remember { mutableStateOf(0L) }
+            BackHandler {
+                if (currentMode == "Client") {
+                    if (pathStack.size > 1) {
+                        pathStack.removeAt(pathStack.size - 1)
+                        return@BackHandler
+                    } else if (selectedServerUrl != null) {
+                        selectedServerUrl = null
+                        return@BackHandler
+                    }
+                }
+                val now = System.currentTimeMillis()
+                if (now - lastMainBackPressTime < 2000) {
+                    finish()
+                } else {
+                    lastMainBackPressTime = now
+                    Toast.makeText(context, "Press Back again to exit", Toast.LENGTH_SHORT).show()
+                }
+            }
 
             // Handle network scanning discovery lifecycle
             LaunchedEffect(currentMode) {

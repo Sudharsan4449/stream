@@ -53,6 +53,7 @@ class PlayerActivity : ComponentActivity() {
     private var totalDurationState by mutableStateOf(0L)
     private var showControlsState by mutableStateOf(true)
     private var brightnessState by mutableStateOf(0.8f)
+    private var playbackSpeedState by mutableStateOf(1.0f)
     private var resizeModeState by mutableStateOf(AspectRatioFrameLayout.RESIZE_MODE_FIT)
     private var lastBackPressTime = 0L
     private var videoUrl: String = ""
@@ -276,15 +277,25 @@ class PlayerActivity : ComponentActivity() {
                                 .fillMaxWidth()
                                 .align(Alignment.BottomCenter)
                         ) {
-                            // Progress bar indicator
+                            // Progress bar slider
                             val progress = if (totalDuration > 0) currentTime.toFloat() / totalDuration.toFloat() else 0f
-                            LinearProgressIndicator(
-                                progress = progress,
+                            Slider(
+                                value = progress,
+                                onValueChange = { newProgress ->
+                                    val newTime = (newProgress * totalDuration).toLong()
+                                    player?.seekTo(newTime)
+                                    currentTimeState = newTime
+                                    resetControlsTimer()
+                                },
                                 modifier = Modifier
                                     .fillMaxWidth()
-                                    .height(6.dp)
-                                    .background(Color.Gray.copy(alpha = 0.5f), shape = RoundedCornerShape(3.dp)),
-                                color = Color(0xFF10B981)
+                                    .height(24.dp)
+                                    .focusable(),
+                                colors = SliderDefaults.colors(
+                                    thumbColor = Color(0xFF10B981),
+                                    activeTrackColor = Color(0xFF10B981),
+                                    inactiveTrackColor = Color.Gray.copy(alpha = 0.5f)
+                                )
                             )
 
                             Spacer(modifier = Modifier.height(8.dp))
@@ -329,6 +340,33 @@ class PlayerActivity : ComponentActivity() {
                                             else -> "Fit"
                                         }
                                         Text("Mode: $modeText", color = if (isModeFocused) Color.Black else Color.White)
+                                    }
+
+                                    // Speed Control Button
+                                    var isSpeedFocused by remember { mutableStateOf(false) }
+                                    Button(
+                                        onClick = {
+                                            playbackSpeedState = when (playbackSpeedState) {
+                                                0.5f -> 1.0f
+                                                1.0f -> 1.5f
+                                                1.5f -> 2.0f
+                                                2.0f -> 0.5f
+                                                else -> 1.0f
+                                            }
+                                            player?.setPlaybackSpeed(playbackSpeedState)
+                                            resetControlsTimer()
+                                        },
+                                        colors = ButtonDefaults.buttonColors(
+                                            containerColor = if (isSpeedFocused) Color(0xFF10B981) else Color(0xFF1E293B)
+                                        ),
+                                        modifier = Modifier
+                                            .onFocusChanged { isSpeedFocused = it.isFocused }
+                                            .focusable()
+                                    ) {
+                                        Text(
+                                            text = "Speed: ${playbackSpeedState}x",
+                                            color = if (isSpeedFocused) Color.Black else Color.White
+                                        )
                                     }
 
                                     // Brightness Control Button
@@ -474,21 +512,18 @@ class PlayerActivity : ComponentActivity() {
                     return true
                 }
                 KeyEvent.KEYCODE_BACK -> {
-                    if (!showControlsState) {
-                        showControlsState = true
-                        return true
-                    } else {
-                        val now = System.currentTimeMillis()
-                        if (now - lastBackPressTime < 2000) {
-                            savePlaybackPosition()
-                            finish()
-                        } else {
-                            lastBackPressTime = now
-                            showControlsState = false
-                            Toast.makeText(this, "Press Back again to exit", Toast.LENGTH_SHORT).show()
-                        }
-                        return true
+                    if (showControlsState) {
+                        showControlsState = false
                     }
+                    val now = System.currentTimeMillis()
+                    if (now - lastBackPressTime < 2000) {
+                        savePlaybackPosition()
+                        finish()
+                    } else {
+                        lastBackPressTime = now
+                        Toast.makeText(this, "Press Back again to exit", Toast.LENGTH_SHORT).show()
+                    }
+                    return true
                 }
                 else -> {
                     if (!showControlsState && isNavigationOrActionKey(keyCode)) {
