@@ -11,8 +11,8 @@ android {
         applicationId = "com.streamcast.app"
         minSdk = 21
         targetSdk = 34
-        versionCode = 1
-        versionName = "1.0"
+        versionCode = 3
+        versionName = "1.0.3"
     }
     
     signingConfigs {
