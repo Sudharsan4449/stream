@@ -81,12 +81,16 @@ class WebDavServer(
                 }
 
                 // POST handlers (Fallback for Android HttpURLConnection which rejects PROPFIND)
-                io.ktor.server.routing.post("/") {
-                    handlePropFind(call, "/")
+                route("/", HttpMethod.Post) {
+                    handle {
+                        handlePropFind(call, "/")
+                    }
                 }
-                io.ktor.server.routing.post("{...}") {
-                    val decodedPath = URLDecoder.decode(call.request.path(), "UTF-8")
-                    handlePropFind(call, decodedPath)
+                route("{...}", HttpMethod.Post) {
+                    handle {
+                        val decodedPath = URLDecoder.decode(call.request.path(), "UTF-8")
+                        handlePropFind(call, decodedPath)
+                    }
                 }
 
                 // GET handlers (media streams and subtitles)
