@@ -9,10 +9,17 @@ android {
 
     defaultConfig {
         applicationId = "com.streamcast.app"
-        minSdk = 24
+        minSdk = 21
         targetSdk = 34
         versionCode = 1
         versionName = "1.0"
+    }
+    
+    signingConfigs {
+        getByName("debug") {
+            enableV1Signing = true
+            enableV2Signing = true
+        }
     }
     buildFeatures {
         compose = true
