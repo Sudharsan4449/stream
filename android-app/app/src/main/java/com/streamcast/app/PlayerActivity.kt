@@ -12,6 +12,7 @@ import androidx.compose.animation.*
 import androidx.compose.animation.core.*
 import androidx.compose.foundation.background
 import androidx.compose.foundation.focusable
+import androidx.compose.foundation.gestures.detectTapGestures
 import androidx.compose.foundation.layout.*
 import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.itemsIndexed
@@ -33,6 +34,7 @@ import androidx.compose.ui.graphics.Brush
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.toArgb
 import androidx.compose.ui.input.key.*
+import androidx.compose.ui.input.pointer.pointerInput
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
@@ -47,9 +49,6 @@ import androidx.media3.exoplayer.ExoPlayer
 import androidx.media3.ui.AspectRatioFrameLayout
 import androidx.media3.ui.CaptionStyleCompat
 import androidx.media3.ui.PlayerView
-import kotlinx.coroutines.Job
-import kotlinx.coroutines.delay
-import kotlinx.coroutines.launch
 import java.net.URLDecoder
 
 // Reusable TvFocusableButton component
@@ -176,6 +175,9 @@ fun TvSelectorDialog(
         modifier = Modifier
             .fillMaxSize()
             .background(Color.Black.copy(alpha = 0.8f))
+            .pointerInput(Unit) {
+                detectTapGestures(onTap = { onDismiss() })
+            }
             .onKeyEvent {
                 if ((it.nativeKeyEvent.keyCode == KeyEvent.KEYCODE_BACK || it.nativeKeyEvent.keyCode == KeyEvent.KEYCODE_ESCAPE) && it.type == KeyEventType.KeyDown) {
                     onDismiss()
@@ -223,7 +225,6 @@ class PlayerActivity : ComponentActivity() {
     private var currentTimeState by mutableStateOf(0L)
     private var totalDurationState by mutableStateOf(0L)
     private var bufferedPositionState by mutableStateOf(0L)
-    private var showControlsState by mutableStateOf(true)
     private var brightnessState by mutableStateOf(0.8f)
     private var playbackSpeedState by mutableStateOf(1.0f)
     private var resizeModeState by mutableStateOf(AspectRatioFrameLayout.RESIZE_MODE_FIT)
@@ -232,6 +233,12 @@ class PlayerActivity : ComponentActivity() {
     
     private var subtitleSizeState by mutableStateOf(16f)
     private var subtitleStyleState by mutableStateOf("Normal")
+
+    // Elevated UI state for global Key Event processing
+    private var showControlsState by mutableStateOf(true)
+    private var showAudioDialogState by mutableStateOf(false)
+    private var showSubtitleDialogState by mutableStateOf(false)
+    private var interactionCounter by mutableStateOf(0)
 
     companion object {
         const val EXTRA_VIDEO_URL = "EXTRA_VIDEO_URL"
@@ -266,15 +273,11 @@ class PlayerActivity : ComponentActivity() {
             val totalDuration = totalDurationState
             val bufferedPosition = bufferedPositionState
             val showControls = showControlsState
+            val showAudioDialog = showAudioDialogState
+            val showSubtitleDialog = showSubtitleDialogState
             val resizeMode = resizeModeState
             val subtitleSize = subtitleSizeState
             val subtitleStyle = subtitleStyleState
-
-            val coroutineScope = rememberCoroutineScope()
-            var controlsTimeoutJob by remember { mutableStateOf<Job?>(null) }
-            
-            var showAudioDialog by remember { mutableStateOf(false) }
-            var showSubtitleDialog by remember { mutableStateOf(false) }
             
             // Focus Requesters
             val playPauseFocusRequester = remember { FocusRequester() }
@@ -287,17 +290,16 @@ class PlayerActivity : ComponentActivity() {
             val speedFocusRequester = remember { FocusRequester() }
             val modeFocusRequester = remember { FocusRequester() }
 
-            fun resetControlsTimer() {
-                showControlsState = true
-                controlsTimeoutJob?.cancel()
-                controlsTimeoutJob = coroutineScope.launch {
-                    delay(5000)
+            // Auto-hide controls after 5 seconds of inactivity
+            LaunchedEffect(interactionCounter) {
+                if (showControls) {
+                    kotlinx.coroutines.delay(5000)
                     showControlsState = false
                 }
             }
 
             LaunchedEffect(Unit) {
-                resetControlsTimer()
+                triggerInteraction()
                 try {
                     playPauseFocusRequester.requestFocus()
                 } catch (e: Exception) {}
@@ -309,7 +311,7 @@ class PlayerActivity : ComponentActivity() {
                         currentTimeState = player?.currentPosition ?: 0L
                         totalDurationState = player?.duration ?: 0L
                         bufferedPositionState = player?.bufferedPosition ?: 0L
-                        delay(1000)
+                        kotlinx.coroutines.delay(1000)
                     }
                 }
             }
@@ -318,99 +320,44 @@ class PlayerActivity : ComponentActivity() {
                 modifier = Modifier
                     .fillMaxSize()
                     .background(Color.Black)
-                    .onKeyEvent { event ->
-                        if (event.type != KeyEventType.KeyDown) return@onKeyEvent false
-                        
-                        // Ignore volume keys
-                        if (event.nativeKeyEvent.keyCode == KeyEvent.KEYCODE_VOLUME_UP || 
-                            event.nativeKeyEvent.keyCode == KeyEvent.KEYCODE_VOLUME_DOWN || 
-                            event.nativeKeyEvent.keyCode == KeyEvent.KEYCODE_VOLUME_MUTE) {
-                            return@onKeyEvent false
-                        }
-
-                        resetControlsTimer()
-
-                        when (event.nativeKeyEvent.keyCode) {
-                            KeyEvent.KEYCODE_DPAD_CENTER, KeyEvent.KEYCODE_ENTER -> {
-                                if (!showControlsState && !showAudioDialog && !showSubtitleDialog) {
-                                    showControlsState = true
-                                    try { playPauseFocusRequester.requestFocus() } catch (e: Exception) {}
-                                    return@onKeyEvent true
-                                }
-                                false
-                            }
-                            KeyEvent.KEYCODE_DPAD_LEFT, KeyEvent.KEYCODE_DPAD_RIGHT -> {
-                                if (!showControlsState && !showAudioDialog && !showSubtitleDialog) {
-                                    val multiplier = if (event.nativeKeyEvent.repeatCount > 5) 5 else 1
-                                    val step = 10000L * multiplier
-                                    if (event.nativeKeyEvent.keyCode == KeyEvent.KEYCODE_DPAD_LEFT) {
-                                        seekBackward(step)
-                                    } else {
-                                        seekForward(step)
-                                    }
-                                    showControlsState = true
-                                    try { playPauseFocusRequester.requestFocus() } catch (e: Exception) {}
-                                    return@onKeyEvent true
-                                }
-                                false
-                            }
-                            KeyEvent.KEYCODE_MEDIA_PLAY_PAUSE -> {
-                                togglePlayPause()
-                                return@onKeyEvent true
-                            }
-                            KeyEvent.KEYCODE_BACK, KeyEvent.KEYCODE_ESCAPE -> {
-                                if (showAudioDialog) {
-                                    showAudioDialog = false
-                                    try { audioFocusRequester.requestFocus() } catch (e: Exception) {}
-                                    return@onKeyEvent true
-                                }
-                                if (showSubtitleDialog) {
-                                    showSubtitleDialog = false
-                                    try { subtitleFocusRequester.requestFocus() } catch (e: Exception) {}
-                                    return@onKeyEvent true
-                                }
-                                if (showControlsState) {
-                                    showControlsState = false
-                                    return@onKeyEvent true
-                                }
-                                
-                                val now = System.currentTimeMillis()
-                                if (now - lastBackPressTime < 2000) {
-                                    savePlaybackPosition()
-                                    finish()
-                                } else {
-                                    lastBackPressTime = now
-                                    Toast.makeText(this@PlayerActivity, "Press Back again to exit", Toast.LENGTH_SHORT).show()
-                                }
-                                return@onKeyEvent true
-                            }
-                            else -> false
-                        }
-                    }
             ) {
-                // Base Video Layer
-                AndroidView(
-                    factory = { ctx ->
-                        PlayerView(ctx).apply {
-                            useController = false
-                            this.player = this@PlayerActivity.player
-                            this.resizeMode = resizeMode
-                        }
-                    },
-                    update = { view ->
-                        view.resizeMode = resizeMode
-                        view.player = this@PlayerActivity.player
-                        view.subtitleView?.let { subView ->
-                            subView.setFixedTextSize(android.util.TypedValue.COMPLEX_UNIT_SP, subtitleSize)
-                            when (subtitleStyle) {
-                                "Normal" -> subView.setStyle(CaptionStyleCompat.DEFAULT)
-                                "Yellow" -> subView.setStyle(CaptionStyleCompat(Color.Yellow.toArgb(), Color.Transparent.toArgb(), Color.Transparent.toArgb(), CaptionStyleCompat.EDGE_TYPE_DROP_SHADOW, Color.Black.toArgb(), null))
-                                "BlackBG" -> subView.setStyle(CaptionStyleCompat(Color.White.toArgb(), Color.Black.copy(alpha = 0.5f).toArgb(), Color.Transparent.toArgb(), CaptionStyleCompat.EDGE_TYPE_NONE, Color.Black.toArgb(), null))
+                // Base Video Layer wrapper to catch Taps
+                Box(modifier = Modifier
+                    .fillMaxSize()
+                    .pointerInput(Unit) {
+                        detectTapGestures(onTap = {
+                            if (!showControlsState) {
+                                triggerInteraction()
+                                try { playPauseFocusRequester.requestFocus() } catch (e: Exception) {}
+                            } else {
+                                triggerInteraction()
                             }
-                        }
-                    },
-                    modifier = Modifier.fillMaxSize()
-                )
+                        })
+                    }
+                ) {
+                    AndroidView(
+                        factory = { ctx ->
+                            PlayerView(ctx).apply {
+                                useController = false
+                                this.player = this@PlayerActivity.player
+                                this.resizeMode = resizeMode
+                            }
+                        },
+                        update = { view ->
+                            view.resizeMode = resizeMode
+                            view.player = this@PlayerActivity.player
+                            view.subtitleView?.let { subView ->
+                                subView.setFixedTextSize(android.util.TypedValue.COMPLEX_UNIT_SP, subtitleSize)
+                                when (subtitleStyle) {
+                                    "Normal" -> subView.setStyle(CaptionStyleCompat.DEFAULT)
+                                    "Yellow" -> subView.setStyle(CaptionStyleCompat(Color.Yellow.toArgb(), Color.Transparent.toArgb(), Color.Transparent.toArgb(), CaptionStyleCompat.EDGE_TYPE_DROP_SHADOW, Color.Black.toArgb(), null))
+                                    "BlackBG" -> subView.setStyle(CaptionStyleCompat(Color.White.toArgb(), Color.Black.copy(alpha = 0.5f).toArgb(), Color.Transparent.toArgb(), CaptionStyleCompat.EDGE_TYPE_NONE, Color.Black.toArgb(), null))
+                                }
+                            }
+                        },
+                        modifier = Modifier.fillMaxSize()
+                    )
+                }
 
                 // Overlay Controls Layer
                 AnimatedVisibility(
@@ -431,6 +378,10 @@ class PlayerActivity : ComponentActivity() {
                                 )
                             )
                             .padding(horizontal = 48.dp, vertical = 32.dp)
+                            .pointerInput(Unit) {
+                                // Reset timer if user taps anywhere on the controls
+                                detectTapGestures(onTap = { triggerInteraction() })
+                            }
                     ) {
                         // Top Bar: Back & Title
                         Row(
@@ -461,7 +412,7 @@ class PlayerActivity : ComponentActivity() {
                                 focusRequester = rewindFocusRequester,
                                 onClick = { 
                                     seekBackward(10000L)
-                                    resetControlsTimer()
+                                    triggerInteraction()
                                 },
                                 modifier = Modifier.size(64.dp).focusProperties { right = playPauseFocusRequester; up = backButtonFocusRequester; down = timelineFocusRequester }
                             ) { isFocused -> Icon(Icons.Default.FastRewind, contentDescription = "Rewind", tint = if (isFocused) Color.Black else Color.White, modifier = Modifier.size(32.dp)) }
@@ -470,7 +421,7 @@ class PlayerActivity : ComponentActivity() {
                                 focusRequester = playPauseFocusRequester,
                                 onClick = { 
                                     togglePlayPause()
-                                    resetControlsTimer()
+                                    triggerInteraction()
                                 },
                                 modifier = Modifier.size(80.dp).focusProperties { left = rewindFocusRequester; right = forwardFocusRequester; up = backButtonFocusRequester; down = timelineFocusRequester }
                             ) { isFocused -> Icon(if (isPlaying) Icons.Default.Pause else Icons.Default.PlayArrow, contentDescription = "Play/Pause", tint = if (isFocused) Color.Black else Color.White, modifier = Modifier.size(48.dp)) }
@@ -479,7 +430,7 @@ class PlayerActivity : ComponentActivity() {
                                 focusRequester = forwardFocusRequester,
                                 onClick = { 
                                     seekForward(10000L)
-                                    resetControlsTimer()
+                                    triggerInteraction()
                                 },
                                 modifier = Modifier.size(64.dp).focusProperties { left = playPauseFocusRequester; up = backButtonFocusRequester; down = timelineFocusRequester }
                             ) { isFocused -> Icon(Icons.Default.FastForward, contentDescription = "Forward", tint = if (isFocused) Color.Black else Color.White, modifier = Modifier.size(32.dp)) }
@@ -504,7 +455,7 @@ class PlayerActivity : ComponentActivity() {
                                 onSeek = { newTime ->
                                     player?.seekTo(newTime)
                                     currentTimeState = newTime
-                                    resetControlsTimer()
+                                    triggerInteraction()
                                 }
                             )
 
@@ -514,8 +465,8 @@ class PlayerActivity : ComponentActivity() {
                                 TvFocusableButton(
                                     focusRequester = audioFocusRequester,
                                     onClick = { 
-                                        showAudioDialog = true 
-                                        resetControlsTimer()
+                                        showAudioDialogState = true 
+                                        triggerInteraction()
                                     },
                                     modifier = Modifier.height(48.dp).width(120.dp).focusProperties { up = timelineFocusRequester; right = subtitleFocusRequester }
                                 ) { isFocused -> Text("Audio", color = if (isFocused) Color.Black else Color.White, fontWeight = FontWeight.Medium) }
@@ -523,8 +474,8 @@ class PlayerActivity : ComponentActivity() {
                                 TvFocusableButton(
                                     focusRequester = subtitleFocusRequester,
                                     onClick = { 
-                                        showSubtitleDialog = true 
-                                        resetControlsTimer()
+                                        showSubtitleDialogState = true 
+                                        triggerInteraction()
                                     },
                                     modifier = Modifier.height(48.dp).width(120.dp).focusProperties { up = timelineFocusRequester; left = audioFocusRequester; right = speedFocusRequester }
                                 ) { isFocused -> Text("Subtitles", color = if (isFocused) Color.Black else Color.White, fontWeight = FontWeight.Medium) }
@@ -540,7 +491,7 @@ class PlayerActivity : ComponentActivity() {
                                             else -> 1.0f
                                         }
                                         player?.setPlaybackSpeed(playbackSpeedState)
-                                        resetControlsTimer()
+                                        triggerInteraction()
                                     },
                                     modifier = Modifier.height(48.dp).width(120.dp).focusProperties { up = timelineFocusRequester; left = subtitleFocusRequester; right = modeFocusRequester }
                                 ) { isFocused -> Text("${playbackSpeedState}x", color = if (isFocused) Color.Black else Color.White, fontWeight = FontWeight.Medium) }
@@ -554,7 +505,7 @@ class PlayerActivity : ComponentActivity() {
                                             AspectRatioFrameLayout.RESIZE_MODE_ZOOM -> AspectRatioFrameLayout.RESIZE_MODE_FIT
                                             else -> AspectRatioFrameLayout.RESIZE_MODE_FIT
                                         }
-                                        resetControlsTimer()
+                                        triggerInteraction()
                                     },
                                     modifier = Modifier.height(48.dp).width(120.dp).focusProperties { up = timelineFocusRequester; left = speedFocusRequester }
                                 ) { isFocused -> 
@@ -614,12 +565,13 @@ class PlayerActivity : ComponentActivity() {
                                     }
                                 }
                             }
-                            showAudioDialog = false
-                            resetControlsTimer()
+                            showAudioDialogState = false
+                            triggerInteraction()
                             try { audioFocusRequester.requestFocus() } catch(e:Exception){}
                         },
                         onDismiss = {
-                            showAudioDialog = false
+                            showAudioDialogState = false
+                            triggerInteraction()
                             try { audioFocusRequester.requestFocus() } catch(e:Exception){}
                         }
                     )
@@ -627,7 +579,7 @@ class PlayerActivity : ComponentActivity() {
 
                 if (showSubtitleDialog) {
                     val options = listOf("Size: Small", "Size: Normal", "Size: Large", "Style: Normal", "Style: Yellow", "Style: BlackBG")
-                    val selectedIndex = -1 // Simplified for now since it's mixed
+                    val selectedIndex = -1 
                     
                     TvSelectorDialog(
                         title = "Subtitles",
@@ -642,18 +594,81 @@ class PlayerActivity : ComponentActivity() {
                                 4 -> subtitleStyleState = "Yellow"
                                 5 -> subtitleStyleState = "BlackBG"
                             }
-                            showSubtitleDialog = false
-                            resetControlsTimer()
+                            showSubtitleDialogState = false
+                            triggerInteraction()
                             try { subtitleFocusRequester.requestFocus() } catch(e:Exception){}
                         },
                         onDismiss = {
-                            showSubtitleDialog = false
+                            showSubtitleDialogState = false
+                            triggerInteraction()
                             try { subtitleFocusRequester.requestFocus() } catch(e:Exception){}
                         }
                     )
                 }
             }
         }
+    }
+
+    private fun triggerInteraction() {
+        showControlsState = true
+        interactionCounter++
+    }
+
+    override fun onKeyDown(keyCode: Int, event: KeyEvent?): Boolean {
+        // Ignore volume keys
+        if (keyCode == KeyEvent.KEYCODE_VOLUME_UP || keyCode == KeyEvent.KEYCODE_VOLUME_DOWN || keyCode == KeyEvent.KEYCODE_VOLUME_MUTE) {
+            return super.onKeyDown(keyCode, event)
+        }
+
+        // If controls are hidden, intercept ALL keys
+        if (!showControlsState) {
+            triggerInteraction()
+            when (keyCode) {
+                KeyEvent.KEYCODE_DPAD_LEFT -> seekBackward(10000L)
+                KeyEvent.KEYCODE_DPAD_RIGHT -> seekForward(10000L)
+                KeyEvent.KEYCODE_MEDIA_PLAY_PAUSE -> togglePlayPause()
+                KeyEvent.KEYCODE_BACK, KeyEvent.KEYCODE_ESCAPE -> {
+                    val now = System.currentTimeMillis()
+                    if (now - lastBackPressTime < 2000) {
+                        savePlaybackPosition()
+                        finish()
+                    } else {
+                        lastBackPressTime = now
+                        Toast.makeText(this, "Press Back again to exit", Toast.LENGTH_SHORT).show()
+                    }
+                }
+            }
+            return true
+        }
+
+        triggerInteraction()
+
+        if (keyCode == KeyEvent.KEYCODE_BACK || keyCode == KeyEvent.KEYCODE_ESCAPE) {
+            if (showAudioDialogState) {
+                showAudioDialogState = false
+                return true
+            }
+            if (showSubtitleDialogState) {
+                showSubtitleDialogState = false
+                return true
+            }
+            if (showControlsState) {
+                showControlsState = false
+                return true
+            }
+            
+            val now = System.currentTimeMillis()
+            if (now - lastBackPressTime < 2000) {
+                savePlaybackPosition()
+                finish()
+            } else {
+                lastBackPressTime = now
+                Toast.makeText(this, "Press Back again to exit", Toast.LENGTH_SHORT).show()
+            }
+            return true
+        }
+
+        return super.onKeyDown(keyCode, event)
     }
 
     private fun setupPlayer(videoUrl: String, subtitleUrl: String?) {
