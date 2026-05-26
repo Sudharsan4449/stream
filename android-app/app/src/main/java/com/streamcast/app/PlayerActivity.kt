@@ -8,27 +8,31 @@ import android.view.WindowManager
 import android.widget.Toast
 import androidx.activity.ComponentActivity
 import androidx.activity.compose.setContent
-import androidx.compose.animation.AnimatedVisibility
-import androidx.compose.animation.fadeIn
-import androidx.compose.animation.fadeOut
+import androidx.compose.animation.*
+import androidx.compose.animation.core.*
 import androidx.compose.foundation.background
-import androidx.compose.foundation.clickable
 import androidx.compose.foundation.focusable
 import androidx.compose.foundation.layout.*
+import androidx.compose.foundation.lazy.LazyColumn
+import androidx.compose.foundation.lazy.itemsIndexed
+import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material.icons.Icons
-import androidx.compose.material.icons.filled.PlayArrow
-import androidx.compose.material.icons.filled.Refresh
-import androidx.compose.material.icons.filled.Close
-import androidx.compose.material.icons.filled.Info
+import androidx.compose.material.icons.filled.*
 import androidx.compose.material3.*
 import androidx.compose.runtime.*
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.draw.scale
+import androidx.compose.ui.draw.shadow
+import androidx.compose.ui.focus.FocusRequester
+import androidx.compose.ui.focus.focusProperties
+import androidx.compose.ui.focus.focusRequester
 import androidx.compose.ui.focus.onFocusChanged
+import androidx.compose.ui.graphics.Brush
 import androidx.compose.ui.graphics.Color
-import androidx.compose.ui.input.pointer.pointerInput
-import androidx.compose.foundation.gestures.detectTapGestures
+import androidx.compose.ui.graphics.toArgb
+import androidx.compose.ui.input.key.*
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
@@ -38,18 +42,179 @@ import androidx.media3.common.C
 import androidx.media3.common.MediaItem
 import androidx.media3.common.MimeTypes
 import androidx.media3.common.Player
+import androidx.media3.common.TrackSelectionOverride
 import androidx.media3.exoplayer.ExoPlayer
 import androidx.media3.ui.AspectRatioFrameLayout
+import androidx.media3.ui.CaptionStyleCompat
 import androidx.media3.ui.PlayerView
+import kotlinx.coroutines.Job
 import kotlinx.coroutines.delay
 import kotlinx.coroutines.launch
 import java.net.URLDecoder
-import androidx.compose.ui.graphics.toArgb
-import androidx.media3.ui.CaptionStyleCompat
-import androidx.compose.foundation.lazy.LazyColumn
-import androidx.compose.foundation.lazy.items
-import androidx.media3.common.TrackSelectionOverride
-import androidx.media3.common.Tracks
+
+// Reusable TvFocusableButton component
+@Composable
+fun TvFocusableButton(
+    focusRequester: FocusRequester,
+    onClick: () -> Unit,
+    modifier: Modifier = Modifier,
+    content: @Composable (isFocused: Boolean) -> Unit
+) {
+    var isFocused by remember { mutableStateOf(false) }
+    
+    val scale by animateFloatAsState(
+        targetValue = if (isFocused) 1.15f else 1f,
+        animationSpec = spring(stiffness = Spring.StiffnessLow)
+    )
+    
+    val elevation by animateDpAsState(
+        targetValue = if (isFocused) 8.dp else 0.dp
+    )
+
+    Surface(
+        modifier = modifier
+            .scale(scale)
+            .shadow(elevation, RoundedCornerShape(12.dp))
+            .focusRequester(focusRequester)
+            .onFocusChanged { isFocused = it.isFocused }
+            .focusable()
+            .onKeyEvent {
+                if ((it.nativeKeyEvent.keyCode == KeyEvent.KEYCODE_DPAD_CENTER || it.nativeKeyEvent.keyCode == KeyEvent.KEYCODE_ENTER) && it.type == KeyEventType.KeyDown) {
+                    onClick()
+                    true
+                } else false
+            },
+        color = if (isFocused) Color.White else Color(0x33FFFFFF),
+        shape = RoundedCornerShape(12.dp)
+    ) {
+        Box(modifier = Modifier.fillMaxSize(), contentAlignment = Alignment.Center) {
+            content(isFocused)
+        }
+    }
+}
+
+// Custom TV Timeline component
+@Composable
+fun TvTimeline(
+    currentTime: Long,
+    totalDuration: Long,
+    bufferedPosition: Long,
+    focusRequester: FocusRequester,
+    onSeek: (Long) -> Unit
+) {
+    var isFocused by remember { mutableStateOf(false) }
+    
+    val trackHeight by animateDpAsState(if (isFocused) 12.dp else 4.dp)
+    val thumbRadius by animateDpAsState(if (isFocused) 16.dp else 0.dp)
+    
+    val progress = if (totalDuration > 0) currentTime.toFloat() / totalDuration.toFloat() else 0f
+    val bufferedProgress = if (totalDuration > 0) bufferedPosition.toFloat() / totalDuration.toFloat() else 0f
+
+    Box(
+        modifier = Modifier
+            .fillMaxWidth()
+            .height(48.dp)
+            .focusRequester(focusRequester)
+            .onFocusChanged { isFocused = it.isFocused }
+            .focusable()
+            .onKeyEvent { event ->
+                if (event.type == KeyEventType.KeyDown) {
+                    val multiplier = if (event.nativeKeyEvent.repeatCount > 5) 5 else 1
+                    val step = 10000L * multiplier
+                    when (event.nativeKeyEvent.keyCode) {
+                        KeyEvent.KEYCODE_DPAD_LEFT -> {
+                            onSeek((currentTime - step).coerceAtLeast(0L))
+                            true
+                        }
+                        KeyEvent.KEYCODE_DPAD_RIGHT -> {
+                            onSeek((currentTime + step).coerceAtMost(totalDuration))
+                            true
+                        }
+                        else -> false
+                    }
+                } else false
+            },
+        contentAlignment = Alignment.CenterStart
+    ) {
+        // Background Track
+        Box(modifier = Modifier.fillMaxWidth().height(trackHeight).background(Color.DarkGray, CircleShape))
+        // Buffered Track
+        Box(modifier = Modifier.fillMaxWidth(bufferedProgress).height(trackHeight).background(Color.Gray, CircleShape))
+        // Active Progress Track
+        Box(modifier = Modifier.fillMaxWidth(progress).height(trackHeight).background(Color(0xFFE50914), CircleShape))
+        // Focus Thumb
+        Box(
+            modifier = Modifier
+                .offset(x = (-thumbRadius))
+                .fillMaxWidth(progress)
+                .wrapContentWidth(Alignment.End)
+                .size(thumbRadius * 2)
+                .background(Color.White, CircleShape)
+                .shadow(if (isFocused) 8.dp else 0.dp, CircleShape)
+        )
+    }
+}
+
+// Side Panel Selector Dialog
+@Composable
+fun TvSelectorDialog(
+    title: String,
+    options: List<String>,
+    selectedIndex: Int,
+    onSelect: (Int) -> Unit,
+    onDismiss: () -> Unit
+) {
+    val initialFocusRequester = remember { FocusRequester() }
+    
+    LaunchedEffect(Unit) {
+        try {
+            initialFocusRequester.requestFocus()
+        } catch (e: Exception) {}
+    }
+
+    Box(
+        modifier = Modifier
+            .fillMaxSize()
+            .background(Color.Black.copy(alpha = 0.8f))
+            .onKeyEvent {
+                if ((it.nativeKeyEvent.keyCode == KeyEvent.KEYCODE_BACK || it.nativeKeyEvent.keyCode == KeyEvent.KEYCODE_ESCAPE) && it.type == KeyEventType.KeyDown) {
+                    onDismiss()
+                    true
+                } else false
+            }
+    ) {
+        Column(
+            modifier = Modifier
+                .align(Alignment.CenterEnd)
+                .fillMaxHeight()
+                .width(400.dp)
+                .background(Color(0xFF141414))
+                .padding(32.dp)
+        ) {
+            Text(title, color = Color.White, fontSize = 28.sp, fontWeight = FontWeight.Bold)
+            Spacer(Modifier.height(24.dp))
+            
+            LazyColumn {
+                itemsIndexed(options) { index, option ->
+                    val fr = if (index == selectedIndex) initialFocusRequester else FocusRequester()
+                    TvFocusableButton(
+                        focusRequester = fr,
+                        onClick = { onSelect(index) },
+                        modifier = Modifier.fillMaxWidth().height(56.dp).padding(vertical = 4.dp)
+                    ) { isFocused ->
+                        Row(modifier = Modifier.fillMaxSize().padding(horizontal = 16.dp), verticalAlignment = Alignment.CenterVertically) {
+                            if (index == selectedIndex) {
+                                Icon(Icons.Default.Check, contentDescription = "Selected", tint = if (isFocused) Color.Black else Color.White)
+                                Spacer(Modifier.width(16.dp))
+                            }
+                            Text(option, color = if (isFocused) Color.Black else Color.White, fontSize = 20.sp)
+                        }
+                    }
+                }
+            }
+        }
+    }
+}
 
 class PlayerActivity : ComponentActivity() {
 
@@ -57,13 +222,13 @@ class PlayerActivity : ComponentActivity() {
     private var isPlayingState by mutableStateOf(false)
     private var currentTimeState by mutableStateOf(0L)
     private var totalDurationState by mutableStateOf(0L)
+    private var bufferedPositionState by mutableStateOf(0L)
     private var showControlsState by mutableStateOf(true)
     private var brightnessState by mutableStateOf(0.8f)
     private var playbackSpeedState by mutableStateOf(1.0f)
     private var resizeModeState by mutableStateOf(AspectRatioFrameLayout.RESIZE_MODE_FIT)
     private var lastBackPressTime = 0L
     private var videoUrl: String = ""
-    private var controlsResetCounter by mutableStateOf(0)
     
     private var subtitleSizeState by mutableStateOf(16f)
     private var subtitleStyleState by mutableStateOf("Normal")
@@ -76,7 +241,6 @@ class PlayerActivity : ComponentActivity() {
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
 
-        // Prevent screen dimming or locking during playback
         window.addFlags(WindowManager.LayoutParams.FLAG_KEEP_SCREEN_ON)
         setScreenBrightness(brightnessState)
 
@@ -100,17 +264,28 @@ class PlayerActivity : ComponentActivity() {
             val isPlaying = isPlayingState
             val currentTime = currentTimeState
             val totalDuration = totalDurationState
+            val bufferedPosition = bufferedPositionState
             val showControls = showControlsState
-            val brightness = brightnessState
             val resizeMode = resizeModeState
             val subtitleSize = subtitleSizeState
             val subtitleStyle = subtitleStyleState
 
             val coroutineScope = rememberCoroutineScope()
-            var controlsTimeoutJob by remember { mutableStateOf<kotlinx.coroutines.Job?>(null) }
+            var controlsTimeoutJob by remember { mutableStateOf<Job?>(null) }
             
             var showAudioDialog by remember { mutableStateOf(false) }
             var showSubtitleDialog by remember { mutableStateOf(false) }
+            
+            // Focus Requesters
+            val playPauseFocusRequester = remember { FocusRequester() }
+            val rewindFocusRequester = remember { FocusRequester() }
+            val forwardFocusRequester = remember { FocusRequester() }
+            val timelineFocusRequester = remember { FocusRequester() }
+            val backButtonFocusRequester = remember { FocusRequester() }
+            val audioFocusRequester = remember { FocusRequester() }
+            val subtitleFocusRequester = remember { FocusRequester() }
+            val speedFocusRequester = remember { FocusRequester() }
+            val modeFocusRequester = remember { FocusRequester() }
 
             fun resetControlsTimer() {
                 showControlsState = true
@@ -121,17 +296,19 @@ class PlayerActivity : ComponentActivity() {
                 }
             }
 
-            // Automatically hide controls after 5 seconds on load
             LaunchedEffect(Unit) {
                 resetControlsTimer()
+                try {
+                    playPauseFocusRequester.requestFocus()
+                } catch (e: Exception) {}
             }
 
-            // Track progress position when playing
             LaunchedEffect(isPlaying) {
                 if (isPlaying) {
                     while (true) {
                         currentTimeState = player?.currentPosition ?: 0L
                         totalDurationState = player?.duration ?: 0L
+                        bufferedPositionState = player?.bufferedPosition ?: 0L
                         delay(1000)
                     }
                 }
@@ -141,8 +318,77 @@ class PlayerActivity : ComponentActivity() {
                 modifier = Modifier
                     .fillMaxSize()
                     .background(Color.Black)
+                    .onKeyEvent { event ->
+                        if (event.type != KeyEventType.KeyDown) return@onKeyEvent false
+                        
+                        // Ignore volume keys
+                        if (event.nativeKeyEvent.keyCode == KeyEvent.KEYCODE_VOLUME_UP || 
+                            event.nativeKeyEvent.keyCode == KeyEvent.KEYCODE_VOLUME_DOWN || 
+                            event.nativeKeyEvent.keyCode == KeyEvent.KEYCODE_VOLUME_MUTE) {
+                            return@onKeyEvent false
+                        }
+
+                        resetControlsTimer()
+
+                        when (event.nativeKeyEvent.keyCode) {
+                            KeyEvent.KEYCODE_DPAD_CENTER, KeyEvent.KEYCODE_ENTER -> {
+                                if (!showControlsState && !showAudioDialog && !showSubtitleDialog) {
+                                    showControlsState = true
+                                    try { playPauseFocusRequester.requestFocus() } catch (e: Exception) {}
+                                    return@onKeyEvent true
+                                }
+                                false
+                            }
+                            KeyEvent.KEYCODE_DPAD_LEFT, KeyEvent.KEYCODE_DPAD_RIGHT -> {
+                                if (!showControlsState && !showAudioDialog && !showSubtitleDialog) {
+                                    val multiplier = if (event.nativeKeyEvent.repeatCount > 5) 5 else 1
+                                    val step = 10000L * multiplier
+                                    if (event.nativeKeyEvent.keyCode == KeyEvent.KEYCODE_DPAD_LEFT) {
+                                        seekBackward(step)
+                                    } else {
+                                        seekForward(step)
+                                    }
+                                    showControlsState = true
+                                    try { playPauseFocusRequester.requestFocus() } catch (e: Exception) {}
+                                    return@onKeyEvent true
+                                }
+                                false
+                            }
+                            KeyEvent.KEYCODE_MEDIA_PLAY_PAUSE -> {
+                                togglePlayPause()
+                                return@onKeyEvent true
+                            }
+                            KeyEvent.KEYCODE_BACK, KeyEvent.KEYCODE_ESCAPE -> {
+                                if (showAudioDialog) {
+                                    showAudioDialog = false
+                                    try { audioFocusRequester.requestFocus() } catch (e: Exception) {}
+                                    return@onKeyEvent true
+                                }
+                                if (showSubtitleDialog) {
+                                    showSubtitleDialog = false
+                                    try { subtitleFocusRequester.requestFocus() } catch (e: Exception) {}
+                                    return@onKeyEvent true
+                                }
+                                if (showControlsState) {
+                                    showControlsState = false
+                                    return@onKeyEvent true
+                                }
+                                
+                                val now = System.currentTimeMillis()
+                                if (now - lastBackPressTime < 2000) {
+                                    savePlaybackPosition()
+                                    finish()
+                                } else {
+                                    lastBackPressTime = now
+                                    Toast.makeText(this@PlayerActivity, "Press Back again to exit", Toast.LENGTH_SHORT).show()
+                                }
+                                return@onKeyEvent true
+                            }
+                            else -> false
+                        }
+                    }
             ) {
-                // 1. ExoPlayer view
+                // Base Video Layer
                 AndroidView(
                     factory = { ctx ->
                         PlayerView(ctx).apply {
@@ -166,395 +412,246 @@ class PlayerActivity : ComponentActivity() {
                     modifier = Modifier.fillMaxSize()
                 )
 
-                // 2. Playback Overlay HUD
+                // Overlay Controls Layer
                 AnimatedVisibility(
-                    visible = showControls,
-                    enter = fadeIn(),
-                    exit = fadeOut(),
-                    modifier = Modifier.fillMaxSize()
+                    visible = showControls && !showAudioDialog && !showSubtitleDialog,
+                    enter = fadeIn(animationSpec = tween(300)),
+                    exit = fadeOut(animationSpec = tween(300))
                 ) {
                     Box(
                         modifier = Modifier
                             .fillMaxSize()
-                            .background(Color.Black.copy(alpha = 0.6f))
-                            .padding(32.dp)
-                            .pointerInput(Unit) {
-                                detectTapGestures(onTap = { resetControlsTimer() })
-                            }
+                            .background(
+                                Brush.verticalGradient(
+                                    colors = listOf(
+                                        Color.Black.copy(alpha = 0.7f),
+                                        Color.Transparent,
+                                        Color.Black.copy(alpha = 0.9f)
+                                    )
+                                )
+                            )
+                            .padding(horizontal = 48.dp, vertical = 32.dp)
                     ) {
-                        // --- TOP BAR: Exit Button & Title ---
+                        // Top Bar: Back & Title
                         Row(
-                            modifier = Modifier
-                                .fillMaxWidth()
-                                .align(Alignment.TopStart),
+                            modifier = Modifier.fillMaxWidth().align(Alignment.TopStart),
                             verticalAlignment = Alignment.CenterVertically
                         ) {
-                            var isExitFocused by remember { mutableStateOf(false) }
-                            Button(
-                                onClick = {
+                            TvFocusableButton(
+                                focusRequester = backButtonFocusRequester,
+                                onClick = { 
                                     savePlaybackPosition()
-                                    finish()
+                                    finish() 
                                 },
-                                colors = ButtonDefaults.buttonColors(
-                                    containerColor = if (isExitFocused) Color.Red else Color(0xFFDC2626)
-                                ),
-                                modifier = Modifier
-                                    .padding(end = 16.dp)
-                                    .onFocusChanged { isExitFocused = it.isFocused }
-                                    .focusable()
-                            ) {
-                                Text("Exit Video", color = Color.White)
+                                modifier = Modifier.size(56.dp).focusProperties { down = playPauseFocusRequester }
+                            ) { isFocused ->
+                                Icon(Icons.Default.ArrowBack, contentDescription = "Back", tint = if (isFocused) Color.Black else Color.White)
                             }
-                            Text(
-                                text = videoTitle,
-                                color = Color.White,
-                                fontSize = 18.sp,
-                                fontWeight = FontWeight.Bold,
-                                maxLines = 1,
-                                overflow = TextOverflow.Ellipsis
-                            )
+                            Spacer(Modifier.width(24.dp))
+                            Text(text = videoTitle, color = Color.White, fontSize = 24.sp, fontWeight = FontWeight.SemiBold, maxLines = 1, overflow = TextOverflow.Ellipsis)
                         }
 
-                        // --- CENTER CONTROLS: Seek / Play / Pause Buttons ---
+                        // Center Controls: Rewind, Play, Forward
                         Row(
                             modifier = Modifier.align(Alignment.Center),
-                            horizontalArrangement = Arrangement.spacedBy(28.dp),
+                            horizontalArrangement = Arrangement.spacedBy(48.dp),
                             verticalAlignment = Alignment.CenterVertically
                         ) {
-                            // Seek Backward Button (-10s)
-                            var isRewindFocused by remember { mutableStateOf(false) }
-                            IconButton(
-                                onClick = {
-                                    seekBackward()
+                            TvFocusableButton(
+                                focusRequester = rewindFocusRequester,
+                                onClick = { 
+                                    seekBackward(10000L)
                                     resetControlsTimer()
                                 },
-                                modifier = Modifier
-                                    .size(56.dp)
-                                    .background(
-                                        if (isRewindFocused) Color(0xFF0EA5E9) else Color(0xFF1E293B),
-                                        shape = RoundedCornerShape(28.dp)
-                                    )
-                                    .onFocusChanged { isRewindFocused = it.isFocused }
-                                    .focusable()
-                            ) {
-                                Icon(
-                                    imageVector = Icons.Default.Refresh, // Use refresh as a circular rewind-like symbol
-                                    contentDescription = "Rewind 10 seconds",
-                                    tint = Color.White,
-                                    modifier = Modifier.size(24.dp)
-                                )
-                            }
+                                modifier = Modifier.size(64.dp).focusProperties { right = playPauseFocusRequester; up = backButtonFocusRequester; down = timelineFocusRequester }
+                            ) { isFocused -> Icon(Icons.Default.FastRewind, contentDescription = "Rewind", tint = if (isFocused) Color.Black else Color.White, modifier = Modifier.size(32.dp)) }
 
-                            // Play/Pause Toggle Button
-                            var isPlayFocused by remember { mutableStateOf(false) }
-                            IconButton(
-                                onClick = {
+                            TvFocusableButton(
+                                focusRequester = playPauseFocusRequester,
+                                onClick = { 
                                     togglePlayPause()
                                     resetControlsTimer()
                                 },
-                                modifier = Modifier
-                                    .size(72.dp)
-                                    .background(
-                                        if (isPlayFocused) Color(0xFF10B981) else Color(0xFF1E293B),
-                                        shape = RoundedCornerShape(36.dp)
-                                    )
-                                    .onFocusChanged { isPlayFocused = it.isFocused }
-                                    .focusable()
-                            ) {
-                                Icon(
-                                    imageVector = if (isPlaying) Icons.Default.Close else Icons.Default.PlayArrow,
-                                    contentDescription = if (isPlaying) "Pause" else "Play",
-                                    tint = Color.White,
-                                    modifier = Modifier.size(36.dp)
-                                )
-                            }
+                                modifier = Modifier.size(80.dp).focusProperties { left = rewindFocusRequester; right = forwardFocusRequester; up = backButtonFocusRequester; down = timelineFocusRequester }
+                            ) { isFocused -> Icon(if (isPlaying) Icons.Default.Pause else Icons.Default.PlayArrow, contentDescription = "Play/Pause", tint = if (isFocused) Color.Black else Color.White, modifier = Modifier.size(48.dp)) }
 
-                            // Seek Forward Button (+10s)
-                            var isForwardFocused by remember { mutableStateOf(false) }
-                            IconButton(
-                                onClick = {
-                                    seekForward()
+                            TvFocusableButton(
+                                focusRequester = forwardFocusRequester,
+                                onClick = { 
+                                    seekForward(10000L)
                                     resetControlsTimer()
                                 },
-                                modifier = Modifier
-                                    .size(56.dp)
-                                    .background(
-                                        if (isForwardFocused) Color(0xFF0EA5E9) else Color(0xFF1E293B),
-                                        shape = RoundedCornerShape(28.dp)
-                                    )
-                                    .onFocusChanged { isForwardFocused = it.isFocused }
-                                    .focusable()
-                            ) {
-                                Icon(
-                                    imageVector = Icons.Default.PlayArrow,
-                                    contentDescription = "Forward 10 seconds",
-                                    tint = Color.White,
-                                    modifier = Modifier.size(24.dp)
-                                )
-                            }
+                                modifier = Modifier.size(64.dp).focusProperties { left = playPauseFocusRequester; up = backButtonFocusRequester; down = timelineFocusRequester }
+                            ) { isFocused -> Icon(Icons.Default.FastForward, contentDescription = "Forward", tint = if (isFocused) Color.Black else Color.White, modifier = Modifier.size(32.dp)) }
                         }
 
-                        // --- BOTTOM PANEL: Progress Indicator, Brightness & Aspect Ratio ---
+                        // Bottom Section: Timeline & Tools
                         Column(
-                            modifier = Modifier
-                                .fillMaxWidth()
-                                .align(Alignment.BottomCenter)
+                            modifier = Modifier.fillMaxWidth().align(Alignment.BottomStart)
                         ) {
-                            // Progress bar slider
-                            val progress = if (totalDuration > 0) currentTime.toFloat() / totalDuration.toFloat() else 0f
-                            Slider(
-                                value = progress,
-                                onValueChange = { newProgress ->
-                                    val newTime = (newProgress * totalDuration).toLong()
+                            Row(modifier = Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.SpaceBetween) {
+                                Text(formatTime(currentTime), color = Color.White, fontWeight = FontWeight.Medium)
+                                Text(formatTime(totalDuration), color = Color.White, fontWeight = FontWeight.Medium)
+                            }
+                            
+                            Spacer(Modifier.height(8.dp))
+                            
+                            TvTimeline(
+                                currentTime = currentTime,
+                                totalDuration = totalDuration,
+                                bufferedPosition = bufferedPosition,
+                                focusRequester = timelineFocusRequester,
+                                onSeek = { newTime ->
                                     player?.seekTo(newTime)
                                     currentTimeState = newTime
                                     resetControlsTimer()
-                                },
-                                modifier = Modifier
-                                    .fillMaxWidth()
-                                    .height(24.dp)
-                                    .focusable(),
-                                colors = SliderDefaults.colors(
-                                    thumbColor = Color(0xFF10B981),
-                                    activeTrackColor = Color(0xFF10B981),
-                                    inactiveTrackColor = Color.Gray.copy(alpha = 0.5f)
-                                )
+                                }
                             )
 
-                            Spacer(modifier = Modifier.height(8.dp))
+                            Spacer(Modifier.height(24.dp))
 
-                            Row(
-                                modifier = Modifier.fillMaxWidth(),
-                                horizontalArrangement = Arrangement.SpaceBetween,
-                                verticalAlignment = Alignment.CenterVertically
-                            ) {
-                                Text(
-                                    text = "${formatTime(currentTime)} / ${formatTime(totalDuration)}",
-                                    color = Color.LightGray,
-                                    fontSize = 13.sp
-                                )
+                            Row(horizontalArrangement = Arrangement.spacedBy(24.dp)) {
+                                TvFocusableButton(
+                                    focusRequester = audioFocusRequester,
+                                    onClick = { 
+                                        showAudioDialog = true 
+                                        resetControlsTimer()
+                                    },
+                                    modifier = Modifier.height(48.dp).width(120.dp).focusProperties { up = timelineFocusRequester; right = subtitleFocusRequester }
+                                ) { isFocused -> Text("Audio", color = if (isFocused) Color.Black else Color.White, fontWeight = FontWeight.Medium) }
 
-                                Row(
-                                    horizontalArrangement = Arrangement.spacedBy(16.dp)
-                                ) {
-                                    // Aspect Ratio Toggle Button
-                                    var isModeFocused by remember { mutableStateOf(false) }
-                                    Button(
-                                        onClick = {
-                                            resizeModeState = when (resizeMode) {
-                                                AspectRatioFrameLayout.RESIZE_MODE_FIT -> AspectRatioFrameLayout.RESIZE_MODE_FILL
-                                                AspectRatioFrameLayout.RESIZE_MODE_FILL -> AspectRatioFrameLayout.RESIZE_MODE_ZOOM
-                                                AspectRatioFrameLayout.RESIZE_MODE_ZOOM -> AspectRatioFrameLayout.RESIZE_MODE_FIT
-                                                else -> AspectRatioFrameLayout.RESIZE_MODE_FIT
-                                            }
-                                            resetControlsTimer()
-                                        },
-                                        colors = ButtonDefaults.buttonColors(
-                                            containerColor = if (isModeFocused) Color(0xFF10B981) else Color(0xFF1E293B)
-                                        ),
-                                        modifier = Modifier
-                                            .onFocusChanged { isModeFocused = it.isFocused }
-                                            .focusable()
-                                    ) {
-                                        val modeText = when (resizeMode) {
-                                            AspectRatioFrameLayout.RESIZE_MODE_FIT -> "Fit"
-                                            AspectRatioFrameLayout.RESIZE_MODE_FILL -> "Fill"
-                                            AspectRatioFrameLayout.RESIZE_MODE_ZOOM -> "Zoom"
-                                            else -> "Fit"
+                                TvFocusableButton(
+                                    focusRequester = subtitleFocusRequester,
+                                    onClick = { 
+                                        showSubtitleDialog = true 
+                                        resetControlsTimer()
+                                    },
+                                    modifier = Modifier.height(48.dp).width(120.dp).focusProperties { up = timelineFocusRequester; left = audioFocusRequester; right = speedFocusRequester }
+                                ) { isFocused -> Text("Subtitles", color = if (isFocused) Color.Black else Color.White, fontWeight = FontWeight.Medium) }
+
+                                TvFocusableButton(
+                                    focusRequester = speedFocusRequester,
+                                    onClick = { 
+                                        playbackSpeedState = when (playbackSpeedState) {
+                                            0.5f -> 1.0f
+                                            1.0f -> 1.5f
+                                            1.5f -> 2.0f
+                                            2.0f -> 0.5f
+                                            else -> 1.0f
                                         }
-                                        Text("Mode: $modeText", color = if (isModeFocused) Color.Black else Color.White)
+                                        player?.setPlaybackSpeed(playbackSpeedState)
+                                        resetControlsTimer()
+                                    },
+                                    modifier = Modifier.height(48.dp).width(120.dp).focusProperties { up = timelineFocusRequester; left = subtitleFocusRequester; right = modeFocusRequester }
+                                ) { isFocused -> Text("${playbackSpeedState}x", color = if (isFocused) Color.Black else Color.White, fontWeight = FontWeight.Medium) }
+                                
+                                TvFocusableButton(
+                                    focusRequester = modeFocusRequester,
+                                    onClick = { 
+                                        resizeModeState = when (resizeMode) {
+                                            AspectRatioFrameLayout.RESIZE_MODE_FIT -> AspectRatioFrameLayout.RESIZE_MODE_FILL
+                                            AspectRatioFrameLayout.RESIZE_MODE_FILL -> AspectRatioFrameLayout.RESIZE_MODE_ZOOM
+                                            AspectRatioFrameLayout.RESIZE_MODE_ZOOM -> AspectRatioFrameLayout.RESIZE_MODE_FIT
+                                            else -> AspectRatioFrameLayout.RESIZE_MODE_FIT
+                                        }
+                                        resetControlsTimer()
+                                    },
+                                    modifier = Modifier.height(48.dp).width(120.dp).focusProperties { up = timelineFocusRequester; left = speedFocusRequester }
+                                ) { isFocused -> 
+                                    val modeText = when (resizeMode) {
+                                        AspectRatioFrameLayout.RESIZE_MODE_FIT -> "Fit"
+                                        AspectRatioFrameLayout.RESIZE_MODE_FILL -> "Fill"
+                                        AspectRatioFrameLayout.RESIZE_MODE_ZOOM -> "Zoom"
+                                        else -> "Fit"
                                     }
-
-                                    // Speed Control Button
-                                    var isSpeedFocused by remember { mutableStateOf(false) }
-                                    Button(
-                                        onClick = {
-                                            playbackSpeedState = when (playbackSpeedState) {
-                                                0.5f -> 1.0f
-                                                1.0f -> 1.5f
-                                                1.5f -> 2.0f
-                                                2.0f -> 0.5f
-                                                else -> 1.0f
-                                            }
-                                            player?.setPlaybackSpeed(playbackSpeedState)
-                                            resetControlsTimer()
-                                        },
-                                        colors = ButtonDefaults.buttonColors(
-                                            containerColor = if (isSpeedFocused) Color(0xFF10B981) else Color(0xFF1E293B)
-                                        ),
-                                        modifier = Modifier
-                                            .onFocusChanged { isSpeedFocused = it.isFocused }
-                                            .focusable()
-                                    ) {
-                                        Text(
-                                            text = "Speed: ${playbackSpeedState}x",
-                                            color = if (isSpeedFocused) Color.Black else Color.White
-                                        )
-                                    }
-
-                                    // Brightness Control Button
-                                    var isBrightnessFocused by remember { mutableStateOf(false) }
-                                    Button(
-                                        onClick = {
-                                            brightnessState = when (brightness) {
-                                                0.2f -> 0.4f
-                                                0.4f -> 0.6f
-                                                0.6f -> 0.8f
-                                                0.8f -> 1.0f
-                                                else -> 0.2f
-                                            }
-                                            setScreenBrightness(brightnessState)
-                                            resetControlsTimer()
-                                        },
-                                        colors = ButtonDefaults.buttonColors(
-                                            containerColor = if (isBrightnessFocused) Color(0xFF10B981) else Color(0xFF1E293B)
-                                        ),
-                                        modifier = Modifier
-                                            .onFocusChanged { isBrightnessFocused = it.isFocused }
-                                            .focusable()
-                                    ) {
-                                        Text(
-                                            text = "Brightness: ${(brightness * 100).toInt()}%",
-                                            color = if (isBrightnessFocused) Color.Black else Color.White
-                                        )
-                                    }
-
-                                    // Audio Track Button
-                                    var isAudioFocused by remember { mutableStateOf(false) }
-                                    Button(
-                                        onClick = {
-                                            showAudioDialog = true
-                                            resetControlsTimer()
-                                        },
-                                        colors = ButtonDefaults.buttonColors(
-                                            containerColor = if (isAudioFocused) Color(0xFF10B981) else Color(0xFF1E293B)
-                                        ),
-                                        modifier = Modifier
-                                            .onFocusChanged { isAudioFocused = it.isFocused }
-                                            .focusable()
-                                    ) {
-                                        Text("Audio", color = if (isAudioFocused) Color.Black else Color.White)
-                                    }
-
-                                    // Subtitle Style Button
-                                    var isSubtitleFocused by remember { mutableStateOf(false) }
-                                    Button(
-                                        onClick = {
-                                            showSubtitleDialog = true
-                                            resetControlsTimer()
-                                        },
-                                        colors = ButtonDefaults.buttonColors(
-                                            containerColor = if (isSubtitleFocused) Color(0xFF10B981) else Color(0xFF1E293B)
-                                        ),
-                                        modifier = Modifier
-                                            .onFocusChanged { isSubtitleFocused = it.isFocused }
-                                            .focusable()
-                                    ) {
-                                        Text("Subtitles", color = if (isSubtitleFocused) Color.Black else Color.White)
-                                    }
+                                    Text(modeText, color = if (isFocused) Color.Black else Color.White, fontWeight = FontWeight.Medium) 
                                 }
                             }
                         }
                     }
                 }
-            }
-
-            if (showAudioDialog) {
-                AlertDialog(
-                    onDismissRequest = { showAudioDialog = false },
-                    title = { Text("Select Audio Track") },
-                    text = {
-                        LazyColumn {
-                            val audioGroups = player?.currentTracks?.groups?.filter { it.type == C.TRACK_TYPE_AUDIO } ?: emptyList()
-                            if (audioGroups.isEmpty()) {
-                                item { Text("No additional audio tracks found.") }
-                            } else {
-                                items(audioGroups) { group ->
+                
+                // Dialogs overlay
+                if (showAudioDialog) {
+                    val audioGroups = player?.currentTracks?.groups?.filter { it.type == C.TRACK_TYPE_AUDIO } ?: emptyList()
+                    val options = mutableListOf<String>()
+                    var selectedIndex = 0
+                    if (audioGroups.isEmpty()) {
+                        options.add("No audio tracks found")
+                    } else {
+                        var optIdx = 0
+                        for (group in audioGroups) {
+                            for (i in 0 until group.length) {
+                                val format = group.getTrackFormat(i)
+                                val isSelected = group.isTrackSelected(i)
+                                val language = format.language ?: "Unknown"
+                                val label = format.label ?: "Track ${i + 1}"
+                                options.add("$language - $label")
+                                if (isSelected) selectedIndex = optIdx
+                                optIdx++
+                            }
+                        }
+                    }
+                    
+                    TvSelectorDialog(
+                        title = "Audio Tracks",
+                        options = options,
+                        selectedIndex = selectedIndex,
+                        onSelect = { idx ->
+                            if (audioGroups.isNotEmpty()) {
+                                var currentIdx = 0
+                                for (group in audioGroups) {
                                     for (i in 0 until group.length) {
-                                        val format = group.getTrackFormat(i)
-                                        val isSelected = group.isTrackSelected(i)
-                                        val language = format.language ?: "Unknown"
-                                        val label = format.label ?: "Track ${i + 1}"
-                                        
-                                        var isBtnFocused by remember { mutableStateOf(false) }
-                                        Button(
-                                            onClick = {
-                                                player?.let { p ->
-                                                    p.trackSelectionParameters = p.trackSelectionParameters
-                                                        .buildUpon()
-                                                        .setOverrideForType(TrackSelectionOverride(group.mediaTrackGroup, i))
-                                                        .build()
-                                                }
-                                                showAudioDialog = false
-                                                resetControlsTimer()
-                                            },
-                                            colors = ButtonDefaults.buttonColors(containerColor = if (isBtnFocused) Color(0xFF10B981) else Color(0xFF1E293B)),
-                                            modifier = Modifier
-                                                .fillMaxWidth()
-                                                .padding(vertical = 4.dp)
-                                                .onFocusChanged { isBtnFocused = it.isFocused }
-                                                .focusable()
-                                        ) {
-                                            Text(text = "$language - $label" + if (isSelected) " (Selected)" else "", color = if (isBtnFocused) Color.Black else Color.White)
+                                        if (currentIdx == idx) {
+                                            player?.let { p ->
+                                                p.trackSelectionParameters = p.trackSelectionParameters
+                                                    .buildUpon()
+                                                    .setOverrideForType(TrackSelectionOverride(group.mediaTrackGroup, i))
+                                                    .build()
+                                            }
                                         }
+                                        currentIdx++
                                     }
                                 }
                             }
+                            showAudioDialog = false
+                            resetControlsTimer()
+                            try { audioFocusRequester.requestFocus() } catch(e:Exception){}
+                        },
+                        onDismiss = {
+                            showAudioDialog = false
+                            try { audioFocusRequester.requestFocus() } catch(e:Exception){}
                         }
-                    },
-                    confirmButton = {
-                        var isCloseFocused by remember { mutableStateOf(false) }
-                        TextButton(
-                            onClick = { showAudioDialog = false },
-                            modifier = Modifier
-                                .onFocusChanged { isCloseFocused = it.isFocused }
-                                .focusable()
-                        ) {
-                            Text("Close", color = if (isCloseFocused) Color(0xFF10B981) else Color.White)
-                        }
-                    }
-                )
-            }
+                    )
+                }
 
-            if (showSubtitleDialog) {
-                AlertDialog(
-                    onDismissRequest = { showSubtitleDialog = false },
-                    title = { Text("Subtitle Customization") },
-                    text = {
-                        Column {
-                            Text("Size:", fontWeight = FontWeight.Bold)
-                            Row(modifier = Modifier.padding(vertical = 8.dp), horizontalArrangement = Arrangement.spacedBy(8.dp)) {
-                                listOf(12f to "Small", 16f to "Normal", 24f to "Large").forEach { (size, label) ->
-                                    var isBtnFocused by remember { mutableStateOf(false) }
-                                    Button(
-                                        onClick = { subtitleSizeState = size },
-                                        colors = ButtonDefaults.buttonColors(containerColor = if (subtitleSize == size) Color.Gray else if (isBtnFocused) Color(0xFF10B981) else Color(0xFF1E293B)),
-                                        modifier = Modifier.onFocusChanged { isBtnFocused = it.isFocused }.focusable()
-                                    ) { Text(label, color = if (isBtnFocused) Color.Black else Color.White) }
-                                }
+                if (showSubtitleDialog) {
+                    val options = listOf("Size: Small", "Size: Normal", "Size: Large", "Style: Normal", "Style: Yellow", "Style: BlackBG")
+                    val selectedIndex = -1 // Simplified for now since it's mixed
+                    
+                    TvSelectorDialog(
+                        title = "Subtitles",
+                        options = options,
+                        selectedIndex = selectedIndex,
+                        onSelect = { idx ->
+                            when(idx) {
+                                0 -> subtitleSizeState = 12f
+                                1 -> subtitleSizeState = 16f
+                                2 -> subtitleSizeState = 24f
+                                3 -> subtitleStyleState = "Normal"
+                                4 -> subtitleStyleState = "Yellow"
+                                5 -> subtitleStyleState = "BlackBG"
                             }
-                            Spacer(modifier = Modifier.height(8.dp))
-                            Text("Style:", fontWeight = FontWeight.Bold)
-                            Row(modifier = Modifier.padding(vertical = 8.dp), horizontalArrangement = Arrangement.spacedBy(8.dp)) {
-                                listOf("Normal", "Yellow", "BlackBG").forEach { style ->
-                                    var isBtnFocused by remember { mutableStateOf(false) }
-                                    Button(
-                                        onClick = { subtitleStyleState = style },
-                                        colors = ButtonDefaults.buttonColors(containerColor = if (subtitleStyle == style) Color.Gray else if (isBtnFocused) Color(0xFF10B981) else Color(0xFF1E293B)),
-                                        modifier = Modifier.onFocusChanged { isBtnFocused = it.isFocused }.focusable()
-                                    ) { Text(style, color = if (isBtnFocused) Color.Black else Color.White) }
-                                }
-                            }
+                            showSubtitleDialog = false
+                            resetControlsTimer()
+                            try { subtitleFocusRequester.requestFocus() } catch(e:Exception){}
+                        },
+                        onDismiss = {
+                            showSubtitleDialog = false
+                            try { subtitleFocusRequester.requestFocus() } catch(e:Exception){}
                         }
-                    },
-                    confirmButton = {
-                        var isCloseFocused by remember { mutableStateOf(false) }
-                        TextButton(
-                            onClick = { showSubtitleDialog = false },
-                            modifier = Modifier.onFocusChanged { isCloseFocused = it.isFocused }.focusable()
-                        ) { Text("Close", color = if (isCloseFocused) Color(0xFF10B981) else Color.White) }
-                    }
-                )
+                    )
+                }
             }
         }
     }
@@ -581,13 +678,11 @@ class PlayerActivity : ComponentActivity() {
                 "vtt" -> MimeTypes.TEXT_VTT
                 else -> MimeTypes.APPLICATION_SUBRIP
             }
-
             val subtitleConfig = MediaItem.SubtitleConfiguration.Builder(Uri.parse(subtitleUrl))
                 .setMimeType(mimeType)
                 .setLanguage("en")
                 .setSelectionFlags(C.SELECTION_FLAG_DEFAULT)
                 .build()
-
             mediaItemBuilder.setSubtitleConfigurations(listOf(subtitleConfig))
         }
 
@@ -607,16 +702,16 @@ class PlayerActivity : ComponentActivity() {
         }
     }
 
-    private fun seekBackward() {
+    private fun seekBackward(amount: Long = 10000L) {
         player?.let { p ->
-            p.seekTo(Math.max(0, p.currentPosition - 10000))
+            p.seekTo(Math.max(0, p.currentPosition - amount))
             currentTimeState = p.currentPosition
         }
     }
 
-    private fun seekForward() {
+    private fun seekForward(amount: Long = 10000L) {
         player?.let { p ->
-            p.seekTo(Math.min(p.duration, p.currentPosition + 10000))
+            p.seekTo(Math.min(p.duration, p.currentPosition + amount))
             currentTimeState = p.currentPosition
         }
     }
@@ -625,70 +720,6 @@ class PlayerActivity : ComponentActivity() {
         val layoutParams = window.attributes
         layoutParams.screenBrightness = value
         window.attributes = layoutParams
-    }
-
-    private fun isNavigationOrActionKey(keyCode: Int): Boolean {
-        return when (keyCode) {
-            KeyEvent.KEYCODE_DPAD_UP, KeyEvent.KEYCODE_DPAD_DOWN,
-            KeyEvent.KEYCODE_DPAD_LEFT, KeyEvent.KEYCODE_DPAD_RIGHT,
-            KeyEvent.KEYCODE_DPAD_CENTER, KeyEvent.KEYCODE_ENTER,
-            KeyEvent.KEYCODE_NUMPAD_ENTER -> true
-            else -> false
-        }
-    }
-
-    // Capture TV Remote controls
-    override fun onKeyDown(keyCode: Int, event: KeyEvent?): Boolean {
-        player?.let { p ->
-            when (keyCode) {
-                KeyEvent.KEYCODE_DPAD_LEFT -> {
-                    if (!showControlsState) {
-                        seekBackward()
-                        showControlsState = true
-                        return true
-                    }
-                }
-                KeyEvent.KEYCODE_DPAD_RIGHT -> {
-                    if (!showControlsState) {
-                        seekForward()
-                        showControlsState = true
-                        return true
-                    }
-                }
-                KeyEvent.KEYCODE_DPAD_CENTER, KeyEvent.KEYCODE_ENTER -> {
-                    if (!showControlsState) {
-                        showControlsState = true
-                        return true
-                    }
-                    return false
-                }
-                KeyEvent.KEYCODE_MEDIA_PLAY_PAUSE -> {
-                    togglePlayPause()
-                    return true
-                }
-                KeyEvent.KEYCODE_BACK -> {
-                    if (showControlsState) {
-                        showControlsState = false
-                    }
-                    val now = System.currentTimeMillis()
-                    if (now - lastBackPressTime < 2000) {
-                        savePlaybackPosition()
-                        finish()
-                    } else {
-                        lastBackPressTime = now
-                        Toast.makeText(this, "Press Back again to exit", Toast.LENGTH_SHORT).show()
-                    }
-                    return true
-                }
-                else -> {
-                    if (!showControlsState && isNavigationOrActionKey(keyCode)) {
-                        showControlsState = true
-                        return true
-                    }
-                }
-            }
-        }
-        return super.onKeyDown(keyCode, event)
     }
 
     private fun formatTime(ms: Long): String {
