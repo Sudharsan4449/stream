@@ -11,8 +11,8 @@ android {
         applicationId = "com.streamcast.app"
         minSdk = 21
         targetSdk = 34
-        versionCode = 4
-        versionName = "1.0.4"
+        versionCode = 5
+        versionName = "1.0.5"
     }
     
     signingConfigs {
@@ -54,6 +54,7 @@ dependencies {
     implementation("androidx.compose.ui:ui")
     implementation("androidx.compose.ui:ui-graphics")
     implementation("androidx.compose.material3:material3")
+    implementation("androidx.compose.material:material-icons-extended")
     
     // Ktor Server
     val ktor_version = "2.3.5"
