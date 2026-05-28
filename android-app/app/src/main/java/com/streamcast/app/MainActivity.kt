@@ -178,9 +178,6 @@ class MainActivity : ComponentActivity() {
                     if (pathStack.size > 1) {
                         pathStack.removeAt(pathStack.size - 1)
                         return@BackHandler
-                    } else if (selectedServerUrl != null) {
-                        selectedServerUrl = null
-                        return@BackHandler
                     }
                 }
                 val now = System.currentTimeMillis()
@@ -938,7 +935,7 @@ class MainActivity : ComponentActivity() {
     }
 
     private fun startDownload(url: String, scope: kotlinx.coroutines.CoroutineScope) {
-        val file = File(getExternalFilesDir(Environment.DIRECTORY_DOWNLOADS), "streamcast_update.apk")
+        val file = File(cacheDir, "streamcast_update.apk")
         if (file.exists()) {
             file.delete()
         }
@@ -947,18 +944,48 @@ class MainActivity : ComponentActivity() {
 
         scope.launch(Dispatchers.IO) {
             try {
-                val connection = URL(url).openConnection() as HttpURLConnection
-                connection.requestMethod = "GET"
-                connection.connect()
+                var currentUrl = url
+                var redirectCount = 0
+                var connection: HttpURLConnection? = null
+                var fileLength = 0
+                var input: java.io.InputStream? = null
+                
+                while (redirectCount < 10) {
+                    connection = URL(currentUrl).openConnection() as HttpURLConnection
+                    connection.requestMethod = "GET"
+                    connection.setRequestProperty("User-Agent", "StreamCast-Updater")
+                    connection.instanceFollowRedirects = false
+                    connection.connect()
 
-                val fileLength = connection.contentLength
-                val input = connection.inputStream
+                    val responseCode = connection.responseCode
+                    if (responseCode == HttpURLConnection.HTTP_MOVED_PERM ||
+                        responseCode == HttpURLConnection.HTTP_MOVED_TEMP ||
+                        responseCode == HttpURLConnection.HTTP_SEE_OTHER ||
+                        responseCode == 307 || responseCode == 308) {
+                        
+                        val newUrl = connection.getHeaderField("Location")
+                        if (newUrl == null) break
+                        currentUrl = newUrl
+                        redirectCount++
+                        continue
+                    }
+                    
+                    if (responseCode in 200..299) {
+                        fileLength = connection.contentLength
+                        input = connection.inputStream
+                        break
+                    } else {
+                        throw Exception("Server returned HTTP $responseCode")
+                    }
+                }
+                
+                if (input == null) throw Exception("Too many redirects or null stream")
+                
                 val output = java.io.FileOutputStream(file)
-
-                val data = ByteArray(4096)
+                val data = ByteArray(8192)
                 var total: Long = 0
                 var count: Int
-
+                
                 while (input.read(data).also { count = it } != -1) {
                     total += count.toLong()
                     if (fileLength > 0) {
@@ -979,7 +1006,7 @@ class MainActivity : ComponentActivity() {
                 e.printStackTrace()
                 withContext(Dispatchers.Main) {
                     downloadProgressState = -1f
-                    Toast.makeText(this@MainActivity, "Download failed", Toast.LENGTH_SHORT).show()
+                    Toast.makeText(this@MainActivity, "Download failed: ${e.message}", Toast.LENGTH_LONG).show()
                 }
             }
         }
