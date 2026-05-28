@@ -50,6 +50,7 @@ import androidx.compose.ui.focus.onFocusChanged
 import androidx.compose.foundation.focusable
 import java.net.NetworkInterface
 import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.isActive
 import kotlinx.coroutines.withContext
 import org.json.JSONObject
 import java.net.URL
@@ -225,7 +226,7 @@ class MainActivity : ComponentActivity() {
                 val server = selectedServerUrl
                 if (server != null) {
                     var failCount = 0
-                    while (kotlinx.coroutines.isActive) {
+                    while (isActive) {
                         kotlinx.coroutines.delay(10000L)
                         val isAlive = try {
                             val conn = java.net.URL(server).openConnection() as java.net.HttpURLConnection
