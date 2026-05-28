@@ -672,7 +672,18 @@ class PlayerActivity : ComponentActivity() {
     }
 
     private fun setupPlayer(videoUrl: String, subtitleUrl: String?) {
+        val loadErrorHandlingPolicy = object : androidx.media3.exoplayer.upstream.DefaultLoadErrorHandlingPolicy() {
+            override fun getMinimumLoadableRetryCount(dataType: Int): Int {
+                return Integer.MAX_VALUE
+            }
+        }
+        
+        val mediaSourceFactory = androidx.media3.exoplayer.source.DefaultMediaSourceFactory(this)
+            .setLoadErrorHandlingPolicy(loadErrorHandlingPolicy)
+
         val playerBuilder = ExoPlayer.Builder(this)
+            .setMediaSourceFactory(mediaSourceFactory)
+            
         player = playerBuilder.build()
         isPlayingState = player?.isPlaying ?: false
 

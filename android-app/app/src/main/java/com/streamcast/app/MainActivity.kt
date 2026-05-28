@@ -218,6 +218,44 @@ class MainActivity : ComponentActivity() {
                 }
             }
 
+            val lifecycleOwner = androidx.compose.ui.platform.LocalLifecycleOwner.current
+            
+            // Server Polling Health Check
+            LaunchedEffect(selectedServerUrl) {
+                val server = selectedServerUrl
+                if (server != null) {
+                    var failCount = 0
+                    while (kotlinx.coroutines.isActive) {
+                        kotlinx.coroutines.delay(10000L)
+                        val isAlive = try {
+                            val conn = java.net.URL(server).openConnection() as java.net.HttpURLConnection
+                            conn.requestMethod = "OPTIONS"
+                            conn.connectTimeout = 3000
+                            conn.readTimeout = 3000
+                            conn.connect()
+                            conn.responseCode in 200..499
+                        } catch (e: Exception) {
+                            false
+                        }
+                        
+                        if (!isAlive) {
+                            failCount++
+                            if (failCount >= 2) {
+                                // Only auto-disconnect if MainActivity is actively visible
+                                if (lifecycleOwner.lifecycle.currentState.isAtLeast(androidx.lifecycle.Lifecycle.State.RESUMED)) {
+                                    selectedServerUrl = null
+                                    withContext(Dispatchers.Main) {
+                                        Toast.makeText(context, "Server disconnected", Toast.LENGTH_LONG).show()
+                                    }
+                                }
+                            }
+                        } else {
+                            failCount = 0
+                        }
+                    }
+                }
+            }
+
             // Theme Aesthetics Setup
             val BackgroundColor = Color(0xFF0F172A)
             val CardColor = Color(0xFF1E293B)
