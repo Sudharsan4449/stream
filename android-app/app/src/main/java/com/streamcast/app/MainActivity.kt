@@ -66,6 +66,7 @@ class MainActivity : ComponentActivity() {
     private val PREFS_NAME = "StreamCastPrefs"
     private val KEY_SAVED_URI = "saved_uri"
     private var nsdHelper: NsdHelper? = null
+    private var downloadProgressState by mutableStateOf(-1f)
 
     @OptIn(androidx.compose.material3.ExperimentalMaterial3Api::class)
     override fun onCreate(savedInstanceState: Bundle?) {
@@ -898,7 +899,7 @@ class MainActivity : ComponentActivity() {
                             onClick = {
                                 showUpdateDialog = false
                                 updateUrl?.let { urlStr ->
-                                    startDownload(urlStr)
+                                    startDownload(urlStr, scope)
                                 }
                             }
                         ) {
@@ -912,46 +913,80 @@ class MainActivity : ComponentActivity() {
                     }
                 )
             }
+            
+            if (downloadProgressState >= 0f) {
+                AlertDialog(
+                    onDismissRequest = { },
+                    title = { Text("Downloading Update") },
+                    text = {
+                        Column(modifier = Modifier.fillMaxWidth(), horizontalAlignment = Alignment.CenterHorizontally) {
+                            Text("Please wait...")
+                            Spacer(Modifier.height(16.dp))
+                            LinearProgressIndicator(
+                                progress = downloadProgressState,
+                                modifier = Modifier.fillMaxWidth().height(8.dp),
+                                color = AccentColor
+                            )
+                            Spacer(Modifier.height(8.dp))
+                            Text("${(downloadProgressState * 100).toInt()}%", color = Color.Gray)
+                        }
+                    },
+                    confirmButton = {}
+                )
+            }
         }
     }
 
-    private fun startDownload(url: String) {
-        val file = File(Environment.getExternalStoragePublicDirectory(Environment.DIRECTORY_DOWNLOADS), "streamcast_update.apk")
+    private fun startDownload(url: String, scope: kotlinx.coroutines.CoroutineScope) {
+        val file = File(getExternalFilesDir(Environment.DIRECTORY_DOWNLOADS), "streamcast_update.apk")
         if (file.exists()) {
             file.delete()
         }
 
-        val request = DownloadManager.Request(Uri.parse(url))
-        request.setTitle("StreamCast Update")
-        request.setDescription("Downloading new version...")
-        request.setDestinationInExternalPublicDir(Environment.DIRECTORY_DOWNLOADS, "streamcast_update.apk")
-        request.setNotificationVisibility(DownloadManager.Request.VISIBILITY_VISIBLE_NOTIFY_COMPLETED)
-        
-        val manager = getSystemService(Context.DOWNLOAD_SERVICE) as DownloadManager
-        val downloadId = manager.enqueue(request)
-        
-        val onComplete = object : BroadcastReceiver() {
-            override fun onReceive(context: Context, intent: Intent) {
-                val id = intent.getLongExtra(DownloadManager.EXTRA_DOWNLOAD_ID, -1)
-                if (downloadId == id) {
-                    installApk()
-                    context.unregisterReceiver(this)
+        downloadProgressState = 0f
+
+        scope.launch(Dispatchers.IO) {
+            try {
+                val connection = URL(url).openConnection() as HttpURLConnection
+                connection.requestMethod = "GET"
+                connection.connect()
+
+                val fileLength = connection.contentLength
+                val input = connection.inputStream
+                val output = java.io.FileOutputStream(file)
+
+                val data = ByteArray(4096)
+                var total: Long = 0
+                var count: Int
+
+                while (input.read(data).also { count = it } != -1) {
+                    total += count.toLong()
+                    if (fileLength > 0) {
+                        downloadProgressState = (total.toFloat() / fileLength.toFloat()).coerceIn(0f, 1f)
+                    }
+                    output.write(data, 0, count)
+                }
+
+                output.flush()
+                output.close()
+                input.close()
+
+                withContext(Dispatchers.Main) {
+                    downloadProgressState = -1f
+                    installApk(file)
+                }
+            } catch (e: Exception) {
+                e.printStackTrace()
+                withContext(Dispatchers.Main) {
+                    downloadProgressState = -1f
+                    Toast.makeText(this@MainActivity, "Download failed", Toast.LENGTH_SHORT).show()
                 }
             }
         }
-        
-        if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.TIRAMISU) {
-            registerReceiver(onComplete, IntentFilter(DownloadManager.ACTION_DOWNLOAD_COMPLETE), Context.RECEIVER_EXPORTED)
-        } else {
-            registerReceiver(onComplete, IntentFilter(DownloadManager.ACTION_DOWNLOAD_COMPLETE))
-        }
-        
-        Toast.makeText(this, "Downloading update...", Toast.LENGTH_SHORT).show()
     }
 
-    private fun installApk() {
+    private fun installApk(file: File) {
         try {
-            val file = File(Environment.getExternalStoragePublicDirectory(Environment.DIRECTORY_DOWNLOADS), "streamcast_update.apk")
             if (file.exists()) {
                 val uri = FileProvider.getUriForFile(this, "${packageName}.provider", file)
                 val intent = Intent(Intent.ACTION_VIEW)
