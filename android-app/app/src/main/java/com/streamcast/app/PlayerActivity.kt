@@ -244,6 +244,7 @@ class PlayerActivity : ComponentActivity() {
     companion object {
         const val EXTRA_VIDEO_URL = "EXTRA_VIDEO_URL"
         const val EXTRA_SUBTITLE_URL = "EXTRA_SUBTITLE_URL"
+        const val EXTRA_VIDEO_TITLE = "EXTRA_VIDEO_TITLE"
     }
 
     override fun onCreate(savedInstanceState: Bundle?) {
@@ -254,8 +255,8 @@ class PlayerActivity : ComponentActivity() {
 
         videoUrl = intent.getStringExtra(EXTRA_VIDEO_URL) ?: ""
         val subtitleUrl = intent.getStringExtra(EXTRA_SUBTITLE_URL)
-        val videoTitle = try {
-            URLDecoder.decode(videoUrl, "UTF-8").substringAfterLast('/')
+        val videoTitle = intent.getStringExtra(EXTRA_VIDEO_TITLE) ?: try {
+            java.net.URLDecoder.decode(videoUrl, "UTF-8").substringAfterLast('/')
         } catch (e: Exception) {
             videoUrl.substringAfterLast('/')
         }

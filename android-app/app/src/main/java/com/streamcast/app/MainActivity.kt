@@ -53,6 +53,7 @@ import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.isActive
 import kotlinx.coroutines.withContext
 import org.json.JSONObject
+import org.json.JSONArray
 import java.net.URL
 import java.net.HttpURLConnection
 import android.app.DownloadManager
@@ -61,6 +62,10 @@ import android.content.IntentFilter
 import android.os.Environment
 import androidx.core.content.FileProvider
 import java.io.File
+import javax.net.ssl.HttpsURLConnection
+import javax.net.ssl.SSLContext
+import javax.net.ssl.TrustManager
+import javax.net.ssl.X509TrustManager
 
 class MainActivity : ComponentActivity() {
 
@@ -178,6 +183,11 @@ class MainActivity : ComponentActivity() {
 
             var showUpdateDialog by remember { mutableStateOf(false) }
             var updateUrl by remember { mutableStateOf<String?>(null) }
+            
+            // YouTube Browser State
+            var youtubeSearchQuery by remember { mutableStateOf("") }
+            var youtubeSearchResults by remember { mutableStateOf<List<JSONObject>?>(null) }
+            var isSearchingYoutube by remember { mutableStateOf(false) }
 
             var lastMainBackPressTime by remember { mutableStateOf(0L) }
             BackHandler {
@@ -302,8 +312,18 @@ class MainActivity : ComponentActivity() {
                                     isCheckingUpdate = true
                                     scope.launch(Dispatchers.IO) {
                                         try {
+                                            val trustAllCerts = arrayOf<TrustManager>(object : X509TrustManager {
+                                                override fun checkClientTrusted(chain: Array<out java.security.cert.X509Certificate>?, authType: String?) {}
+                                                override fun checkServerTrusted(chain: Array<out java.security.cert.X509Certificate>?, authType: String?) {}
+                                                override fun getAcceptedIssuers(): Array<java.security.cert.X509Certificate> = arrayOf()
+                                            })
+                                            val sslContext = SSLContext.getInstance("SSL")
+                                            sslContext.init(null, trustAllCerts, java.security.SecureRandom())
+
                                             val url = URL("https://api.github.com/repos/Sudharsan4449/stream/releases/latest")
-                                            val conn = url.openConnection() as HttpURLConnection
+                                            val conn = url.openConnection() as HttpsURLConnection
+                                            conn.sslSocketFactory = sslContext.socketFactory
+                                            conn.hostnameVerifier = javax.net.ssl.HostnameVerifier { _, _ -> true }
                                             conn.requestMethod = "GET"
                                             conn.setRequestProperty("Accept", "application/vnd.github.v3+json")
                                             if (conn.responseCode == 200) {
@@ -674,6 +694,151 @@ class MainActivity : ComponentActivity() {
                                         .background(CardColor, RoundedCornerShape(8.dp))
                                         .padding(16.dp)
                                 ) {
+                                // 0. YouTube Browser Section
+                                    item {
+                                        Text(
+                                            text = "YouTube Browser",
+                                            fontWeight = FontWeight.Bold,
+                                            fontSize = 15.sp,
+                                            color = Color(0xFFFF0000), // YouTube Red
+                                            modifier = Modifier.padding(bottom = 8.dp)
+                                        )
+                                        Row(
+                                            modifier = Modifier.fillMaxWidth().padding(bottom = 16.dp),
+                                            verticalAlignment = Alignment.CenterVertically
+                                        ) {
+                                            OutlinedTextField(
+                                                value = youtubeSearchQuery,
+                                                onValueChange = { youtubeSearchQuery = it },
+                                                label = { Text("Search YouTube") },
+                                                placeholder = { Text("Movie trailers, music, etc...") },
+                                                modifier = Modifier.weight(1f).padding(end = 8.dp),
+                                                singleLine = true
+                                            )
+                                            Button(
+                                                onClick = {
+                                                    if (youtubeSearchQuery.isNotBlank()) {
+                                                        isSearchingYoutube = true
+                                                        scope.launch(Dispatchers.IO) {
+                                                            try {
+                                                                val encodedQuery = java.net.URLEncoder.encode(youtubeSearchQuery.trim(), "UTF-8")
+                                                                // Use an Invidious instance (puffyan) to get search results without API key
+                                                                val url = URL("https://vid.puffyan.us/api/v1/search?q=\$encodedQuery")
+                                                                val conn = url.openConnection() as HttpURLConnection
+                                                                conn.requestMethod = "GET"
+                                                                if (conn.responseCode == 200) {
+                                                                    val response = conn.inputStream.bufferedReader().use { it.readText() }
+                                                                    val jsonArray = JSONArray(response)
+                                                                    val results = mutableListOf<JSONObject>()
+                                                                    for (i in 0 until jsonArray.length()) {
+                                                                        val obj = jsonArray.getJSONObject(i)
+                                                                        if (obj.optString("type") == "video") {
+                                                                            results.add(obj)
+                                                                        }
+                                                                    }
+                                                                    withContext(Dispatchers.Main) {
+                                                                        youtubeSearchResults = results
+                                                                        isSearchingYoutube = false
+                                                                    }
+                                                                } else {
+                                                                    withContext(Dispatchers.Main) { isSearchingYoutube = false }
+                                                                }
+                                                            } catch (e: Exception) {
+                                                                e.printStackTrace()
+                                                                withContext(Dispatchers.Main) { 
+                                                                    isSearchingYoutube = false 
+                                                                    Toast.makeText(context, "Search failed: \${e.message}", Toast.LENGTH_SHORT).show()
+                                                                }
+                                                            }
+                                                        }
+                                                    }
+                                                },
+                                                colors = ButtonDefaults.buttonColors(containerColor = Color(0xFFFF0000))
+                                            ) {
+                                                if (isSearchingYoutube) {
+                                                    CircularProgressIndicator(modifier = Modifier.size(20.dp), color = Color.White, strokeWidth = 2.dp)
+                                                } else {
+                                                    Text("Search", color = Color.White)
+                                                }
+                                            }
+                                        }
+                                        
+                                        // YouTube Search Results
+                                        youtubeSearchResults?.let { results ->
+                                            if (results.isEmpty()) {
+                                                Text("No results found.", color = Color.Gray, fontSize = 14.sp, modifier = Modifier.padding(bottom = 16.dp))
+                                            } else {
+                                                Column(modifier = Modifier.fillMaxWidth().padding(bottom = 16.dp)) {
+                                                    results.take(15).forEach { video ->
+                                                        Card(
+                                                            modifier = Modifier
+                                                                .fillMaxWidth()
+                                                                .padding(vertical = 4.dp)
+                                                                .clickable {
+                                                                    val videoId = video.optString("videoId")
+                                                                    val title = video.optString("title")
+                                                                    Toast.makeText(context, "Extracting Stream...", Toast.LENGTH_SHORT).show()
+                                                                    scope.launch(Dispatchers.IO) {
+                                                                        try {
+                                                                            val url = URL("https://vid.puffyan.us/api/v1/videos/\$videoId")
+                                                                            val conn = url.openConnection() as HttpURLConnection
+                                                                            if (conn.responseCode == 200) {
+                                                                                val response = conn.inputStream.bufferedReader().use { it.readText() }
+                                                                                val json = JSONObject(response)
+                                                                                val formatStreams = json.optJSONArray("formatStreams")
+                                                                                if (formatStreams != null && formatStreams.length() > 0) {
+                                                                                    var streamUrl = formatStreams.getJSONObject(0).optString("url")
+                                                                                    // Find best quality
+                                                                                    for (i in 0 until formatStreams.length()) {
+                                                                                        val format = formatStreams.getJSONObject(i)
+                                                                                        if (format.optString("resolution").contains("1080") || format.optString("resolution").contains("720")) {
+                                                                                            streamUrl = format.optString("url")
+                                                                                            break
+                                                                                        }
+                                                                                    }
+                                                                                    withContext(Dispatchers.Main) {
+                                                                                        val intent = Intent(context, PlayerActivity::class.java).apply {
+                                                                                            putExtra(PlayerActivity.EXTRA_VIDEO_URL, streamUrl)
+                                                                                            putExtra(PlayerActivity.EXTRA_VIDEO_TITLE, title)
+                                                                                        }
+                                                                                        context.startActivity(intent)
+                                                                                    }
+                                                                                } else {
+                                                                                    withContext(Dispatchers.Main) {
+                                                                                        Toast.makeText(context, "No stream found", Toast.LENGTH_SHORT).show()
+                                                                                    }
+                                                                                }
+                                                                            } else {
+                                                                                withContext(Dispatchers.Main) { Toast.makeText(context, "Failed to load video", Toast.LENGTH_SHORT).show() }
+                                                                            }
+                                                                        } catch (e: Exception) {
+                                                                            e.printStackTrace()
+                                                                            withContext(Dispatchers.Main) { Toast.makeText(context, "Playback error", Toast.LENGTH_SHORT).show() }
+                                                                        }
+                                                                    }
+                                                                },
+                                                            colors = CardDefaults.cardColors(containerColor = SecondaryAccent.copy(alpha = 0.5f))
+                                                        ) {
+                                                            Row(
+                                                                modifier = Modifier.fillMaxWidth().padding(12.dp),
+                                                                verticalAlignment = Alignment.CenterVertically
+                                                            ) {
+                                                                Icon(Icons.Default.PlayArrow, contentDescription = "Play", tint = Color.White, modifier = Modifier.size(32.dp))
+                                                                Spacer(modifier = Modifier.width(12.dp))
+                                                                Column {
+                                                                    Text(text = video.optString("title"), color = Color.White, fontWeight = FontWeight.Bold, maxLines = 2, overflow = TextOverflow.Ellipsis)
+                                                                    Text(text = video.optString("author"), color = Color.LightGray, fontSize = 12.sp)
+                                                                }
+                                                            }
+                                                        }
+                                                    }
+                                                }
+                                            }
+                                        }
+
+                                        Divider(color = Color(0xFF334155), thickness = 0.5.dp, modifier = Modifier.padding(vertical = 12.dp))
+                                    }
+
                                     // 1. Manual Connection Input
                                     item {
                                         Text(
