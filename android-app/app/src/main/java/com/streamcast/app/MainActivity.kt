@@ -1154,6 +1154,56 @@ class MainActivity : ComponentActivity() {
                                     }
                                 }
                             }
+                            
+                            var activeDownloads by remember { mutableStateOf<Map<String, Int>>(emptyMap()) }
+                            LaunchedEffect(Unit) {
+                                TvDownloadService.downloadProgressFlow.collect { progressMap ->
+                                    activeDownloads = progressMap
+                                }
+                            }
+                            
+                            if (activeDownloads.isNotEmpty()) {
+                                Row(
+                                    modifier = Modifier.fillMaxWidth().padding(vertical = 12.dp),
+                                    horizontalArrangement = Arrangement.SpaceBetween,
+                                    verticalAlignment = Alignment.CenterVertically
+                                ) {
+                                    Text(
+                                        text = "Active Downloads",
+                                        fontSize = 20.sp,
+                                        fontWeight = FontWeight.Bold,
+                                        color = AccentColor
+                                    )
+                                }
+                                Column(modifier = Modifier.fillMaxWidth().padding(bottom = 12.dp)) {
+                                    activeDownloads.forEach { (filename, progress) ->
+                                        Card(
+                                            modifier = Modifier
+                                                .fillMaxWidth()
+                                                .padding(vertical = 4.dp),
+                                            colors = CardDefaults.cardColors(containerColor = SecondaryAccent.copy(alpha = 0.5f))
+                                        ) {
+                                            Row(
+                                                modifier = Modifier.fillMaxWidth().padding(12.dp),
+                                                horizontalArrangement = Arrangement.SpaceBetween,
+                                                verticalAlignment = Alignment.CenterVertically
+                                            ) {
+                                                Column(modifier = Modifier.weight(1f)) {
+                                                    Text(text = filename, color = Color.White, fontWeight = FontWeight.Bold)
+                                                    Spacer(modifier = Modifier.height(8.dp))
+                                                    LinearProgressIndicator(
+                                                        progress = progress / 100f,
+                                                        modifier = Modifier.fillMaxWidth().height(8.dp),
+                                                        color = AccentColor
+                                                    )
+                                                }
+                                                Spacer(modifier = Modifier.width(16.dp))
+                                                Text(text = "\$progress%", color = Color.White, fontWeight = FontWeight.Bold)
+                                            }
+                                        }
+                                    }
+                                }
+                            }
 
                             Row(
                                 modifier = Modifier.fillMaxWidth().padding(vertical = 12.dp),

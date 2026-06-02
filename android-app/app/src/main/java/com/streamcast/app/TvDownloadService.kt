@@ -26,6 +26,9 @@ class TvDownloadService : Service() {
         const val EXTRA_FILENAME = "EXTRA_FILENAME"
         private const val CHANNEL_ID = "streamcast_download_channel"
         private const val NOTIFICATION_ID = 1002
+        
+        // Expose active downloads to the UI
+        val downloadProgressFlow = kotlinx.coroutines.flow.MutableStateFlow<Map<String, Int>>(emptyMap())
     }
 
     private val serviceScope = CoroutineScope(Dispatchers.IO + Job())
@@ -119,6 +122,8 @@ class TvDownloadService : Service() {
                 var total: Long = 0
                 var count: Int
                 var lastProgress = 0
+                
+                downloadProgressFlow.value = downloadProgressFlow.value.toMutableMap().apply { put(filename, 0) }
 
                 while (input.read(data).also { count = it } != -1) {
                     total += count
@@ -127,6 +132,7 @@ class TvDownloadService : Service() {
                         if (progress > lastProgress) {
                             lastProgress = progress
                             updateProgress(progress)
+                            downloadProgressFlow.value = downloadProgressFlow.value.toMutableMap().apply { put(filename, progress) }
                         }
                     }
                     output.write(data, 0, count)
@@ -136,12 +142,15 @@ class TvDownloadService : Service() {
                 output.close()
                 input.close()
 
+                downloadProgressFlow.value = downloadProgressFlow.value.toMutableMap().apply { remove(filename) }
+
                 withContext(Dispatchers.Main) {
                     Toast.makeText(this@TvDownloadService, "Download complete!", Toast.LENGTH_LONG).show()
                 }
 
             } catch (e: Exception) {
                 e.printStackTrace()
+                downloadProgressFlow.value = downloadProgressFlow.value.toMutableMap().apply { remove(filename) }
                 withContext(Dispatchers.Main) {
                     Toast.makeText(this@TvDownloadService, "Download failed: ${e.message}", Toast.LENGTH_LONG).show()
                 }
