@@ -1136,7 +1136,6 @@ class MainActivity : ComponentActivity() {
                                     }
                                 }
                             }
-                        }
                         } else if (currentMode == "Files") {
                             // --- FILE MANAGER INTERFACE ---
                             var downloadedFiles by remember { mutableStateOf<List<File>>(emptyList()) }
