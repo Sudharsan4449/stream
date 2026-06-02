@@ -1369,6 +1369,19 @@ class MainActivity : ComponentActivity() {
                 
                 while (redirectCount < 10) {
                     connection = URL(currentUrl).openConnection() as HttpURLConnection
+                    
+                    if (connection is javax.net.ssl.HttpsURLConnection) {
+                        val trustAllCerts = arrayOf<javax.net.ssl.TrustManager>(object : javax.net.ssl.X509TrustManager {
+                            override fun checkClientTrusted(chain: Array<out java.security.cert.X509Certificate>?, authType: String?) {}
+                            override fun checkServerTrusted(chain: Array<out java.security.cert.X509Certificate>?, authType: String?) {}
+                            override fun getAcceptedIssuers(): Array<java.security.cert.X509Certificate> = arrayOf()
+                        })
+                        val sslContext = javax.net.ssl.SSLContext.getInstance("SSL")
+                        sslContext.init(null, trustAllCerts, java.security.SecureRandom())
+                        connection.sslSocketFactory = sslContext.socketFactory
+                        connection.hostnameVerifier = javax.net.ssl.HostnameVerifier { _, _ -> true }
+                    }
+
                     connection.requestMethod = "GET"
                     connection.setRequestProperty("User-Agent", "StreamCast-Updater")
                     connection.instanceFollowRedirects = false
