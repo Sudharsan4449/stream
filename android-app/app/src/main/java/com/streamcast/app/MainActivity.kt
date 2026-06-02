@@ -112,6 +112,7 @@ class MainActivity : ComponentActivity() {
             var activePort by remember { mutableStateOf(StreamingService.activePort) }
             var localIps by remember { mutableStateOf(getLocalIps()) }
             var savedUri by remember { mutableStateOf<Uri?>(loadSavedFolderUri()) }
+            var isBatteryOptimized by remember { mutableStateOf(false) }
 
             LaunchedEffect(Unit) {
                 while (true) {
@@ -119,6 +120,11 @@ class MainActivity : ComponentActivity() {
                     activeUri = StreamingService.activeTreeUri
                     activePort = StreamingService.activePort
                     localIps = getLocalIps()
+                    
+                    if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.M) {
+                        val pm = context.getSystemService(Context.POWER_SERVICE) as android.os.PowerManager
+                        isBatteryOptimized = !pm.isIgnoringBatteryOptimizations(context.packageName)
+                    }
                     delay(1000)
                 }
             }
@@ -436,6 +442,42 @@ class MainActivity : ComponentActivity() {
                                         )
                                     ) {
                                         Text(text = if (isRunning) "Stop" else "Start", color = Color.White)
+                                    }
+                                }
+                            }
+                            
+                            if (isRunning && isBatteryOptimized) {
+                                Card(
+                                    modifier = Modifier.fillMaxWidth().padding(vertical = 8.dp),
+                                    colors = CardDefaults.cardColors(containerColor = ErrorColor.copy(alpha = 0.2f))
+                                ) {
+                                    Row(
+                                        modifier = Modifier.fillMaxWidth().padding(16.dp),
+                                        verticalAlignment = Alignment.CenterVertically
+                                    ) {
+                                        Icon(Icons.Default.Info, contentDescription = "Warning", tint = ErrorColor)
+                                        Spacer(modifier = Modifier.width(12.dp))
+                                        Column(modifier = Modifier.weight(1f)) {
+                                            Text("Battery Optimization Active", color = ErrorColor, fontWeight = FontWeight.Bold, fontSize = 14.sp)
+                                            Text("Android may kill the server when screen turns off.", color = Color.White, fontSize = 12.sp)
+                                        }
+                                        Button(
+                                            onClick = {
+                                                if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.M) {
+                                                    try {
+                                                        val intent = Intent(android.provider.Settings.ACTION_REQUEST_IGNORE_BATTERY_OPTIMIZATIONS).apply {
+                                                            data = Uri.parse("package:${context.packageName}")
+                                                        }
+                                                        context.startActivity(intent)
+                                                    } catch (e: Exception) {
+                                                        Toast.makeText(context, "Could not open settings", Toast.LENGTH_SHORT).show()
+                                                    }
+                                                }
+                                            },
+                                            colors = ButtonDefaults.buttonColors(containerColor = ErrorColor)
+                                        ) {
+                                            Text("Fix", color = Color.White)
+                                        }
                                     }
                                 }
                             }

@@ -289,6 +289,7 @@ class PlayerActivity : ComponentActivity() {
             val subtitleFocusRequester = remember { FocusRequester() }
             val speedFocusRequester = remember { FocusRequester() }
             val modeFocusRequester = remember { FocusRequester() }
+            val downloadFocusRequester = remember { FocusRequester() }
 
             // Auto-hide controls after 5 seconds of inactivity
             LaunchedEffect(interactionCounter) {
@@ -386,20 +387,39 @@ class PlayerActivity : ComponentActivity() {
                         // Top Bar: Back & Title
                         Row(
                             modifier = Modifier.fillMaxWidth().align(Alignment.TopStart),
+                            horizontalArrangement = Arrangement.SpaceBetween,
                             verticalAlignment = Alignment.CenterVertically
                         ) {
-                            TvFocusableButton(
-                                focusRequester = backButtonFocusRequester,
-                                onClick = { 
-                                    savePlaybackPosition()
-                                    finish() 
-                                },
-                                modifier = Modifier.size(56.dp).focusProperties { down = playPauseFocusRequester }
-                            ) { isFocused ->
-                                Icon(Icons.Default.ArrowBack, contentDescription = "Back", tint = if (isFocused) Color.Black else Color.White)
+                            Row(verticalAlignment = Alignment.CenterVertically) {
+                                TvFocusableButton(
+                                    focusRequester = backButtonFocusRequester,
+                                    onClick = { 
+                                        savePlaybackPosition()
+                                        finish() 
+                                    },
+                                    modifier = Modifier.size(56.dp).focusProperties { down = playPauseFocusRequester; right = downloadFocusRequester }
+                                ) { isFocused ->
+                                    Icon(Icons.Default.ArrowBack, contentDescription = "Back", tint = if (isFocused) Color.Black else Color.White)
+                                }
+                                Spacer(Modifier.width(24.dp))
+                                Text(text = videoTitle, color = Color.White, fontSize = 24.sp, fontWeight = FontWeight.SemiBold, maxLines = 1, overflow = TextOverflow.Ellipsis, modifier = Modifier.widthIn(max = 400.dp))
                             }
-                            Spacer(Modifier.width(24.dp))
-                            Text(text = videoTitle, color = Color.White, fontSize = 24.sp, fontWeight = FontWeight.SemiBold, maxLines = 1, overflow = TextOverflow.Ellipsis)
+                            
+                            TvFocusableButton(
+                                focusRequester = downloadFocusRequester,
+                                onClick = { 
+                                    triggerInteraction()
+                                    val downloadIntent = Intent(this@PlayerActivity, TvDownloadService::class.java).apply {
+                                        action = TvDownloadService.ACTION_DOWNLOAD
+                                        putExtra(TvDownloadService.EXTRA_URL, videoUrl)
+                                        putExtra(TvDownloadService.EXTRA_FILENAME, videoTitle.ifEmpty { "downloaded_video.mp4" })
+                                    }
+                                    startService(downloadIntent)
+                                },
+                                modifier = Modifier.size(56.dp).focusProperties { down = playPauseFocusRequester; left = backButtonFocusRequester }
+                            ) { isFocused ->
+                                Icon(Icons.Default.KeyboardArrowDown, contentDescription = "Download", tint = if (isFocused) Color.Black else Color.White)
+                            }
                         }
 
                         // Center Controls: Rewind, Play, Forward

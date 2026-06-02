@@ -15,6 +15,9 @@
     
     <!-- Notification Permission (Required on Android 13+) -->
     <uses-permission android:name="android.permission.POST_NOTIFICATIONS" />
+    
+    <!-- Battery Optimization -->
+    <uses-permission android:name="android.permission.REQUEST_IGNORE_BATTERY_OPTIMIZATIONS" />
 
     <!-- Storage Access Framework (SAF) does not require explicit read/write permissions on Android 11+,
          but we keep legacy ones for compatibility on Android 7 to 10 -->
@@ -60,6 +63,13 @@
             android:enabled="true"
             android:exported="false"
             android:foregroundServiceType="mediaPlayback" />
+            
+        <!-- Background Download Service -->
+        <service
+            android:name=".TvDownloadService"
+            android:enabled="true"
+            android:exported="false"
+            android:foregroundServiceType="dataSync" />
             
         <!-- FileProvider for In-App Updates -->
         <provider
