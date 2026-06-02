@@ -383,7 +383,11 @@ class MainActivity : ComponentActivity() {
 
                         // Global Mode Toggle Tabs
                         TabRow(
-                            selectedTabIndex = if (currentMode == "Server") 0 else 1,
+                            selectedTabIndex = when(currentMode) {
+                                "Server" -> 0
+                                "Client" -> 1
+                                else -> 2
+                            },
                             modifier = Modifier.fillMaxWidth().padding(bottom = 12.dp),
                             containerColor = CardColor,
                             contentColor = Color.White
@@ -391,12 +395,17 @@ class MainActivity : ComponentActivity() {
                             Tab(
                                 selected = currentMode == "Server",
                                 onClick = { currentMode = "Server" },
-                                text = { Text("Server Mode (Phone)") }
+                                text = { Text("Server Mode") }
                             )
                             Tab(
                                 selected = currentMode == "Client",
                                 onClick = { currentMode = "Client" },
-                                text = { Text("Client Mode (TV)") }
+                                text = { Text("Client Mode") }
+                            )
+                            Tab(
+                                selected = currentMode == "Files",
+                                onClick = { currentMode = "Files" },
+                                text = { Text("File Manager") }
                             )
                         }
 
@@ -648,7 +657,7 @@ class MainActivity : ComponentActivity() {
                                 }
                             }
 
-                        } else {
+                        } else if (currentMode == "Client") {
                             // --- CLIENT INTERFACE (TV / PLAYER COMPANION MODE) ---
                             Row(
                                 modifier = Modifier.fillMaxWidth().padding(vertical = 12.dp),
@@ -1120,6 +1129,118 @@ class MainActivity : ComponentActivity() {
                                                             color = if (isFocused) Color(0xFF1E293B) else Color.LightGray,
                                                             fontSize = 12.sp
                                                         )
+                                                    }
+                                                }
+                                            }
+                                        }
+                                    }
+                                }
+                            }
+                        }
+                        } else if (currentMode == "Files") {
+                            // --- FILE MANAGER INTERFACE ---
+                            var downloadedFiles by remember { mutableStateOf<List<File>>(emptyList()) }
+                            LaunchedEffect(currentMode) {
+                                withContext(Dispatchers.IO) {
+                                    val dirs = ContextCompat.getExternalFilesDirs(context, Environment.DIRECTORY_MOVIES)
+                                    val allFiles = mutableListOf<File>()
+                                    dirs.forEach { dir ->
+                                        if (dir != null && dir.exists()) {
+                                            allFiles.addAll(dir.listFiles()?.toList() ?: emptyList())
+                                        }
+                                    }
+                                    withContext(Dispatchers.Main) {
+                                        downloadedFiles = allFiles.filter { it.isFile && (it.name.endsWith(".mp4") || it.name.endsWith(".mkv") || it.name.endsWith(".avi")) }
+                                    }
+                                }
+                            }
+
+                            Row(
+                                modifier = Modifier.fillMaxWidth().padding(vertical = 12.dp),
+                                horizontalArrangement = Arrangement.SpaceBetween,
+                                verticalAlignment = Alignment.CenterVertically
+                            ) {
+                                Text(
+                                    text = "Downloaded Videos",
+                                    fontSize = 20.sp,
+                                    fontWeight = FontWeight.Bold,
+                                    color = Color.White
+                                )
+                                IconButton(onClick = {
+                                    scope.launch(Dispatchers.IO) {
+                                        val dirs = ContextCompat.getExternalFilesDirs(context, Environment.DIRECTORY_MOVIES)
+                                        val allFiles = mutableListOf<File>()
+                                        dirs.forEach { dir ->
+                                            if (dir != null && dir.exists()) {
+                                                allFiles.addAll(dir.listFiles()?.toList() ?: emptyList())
+                                            }
+                                        }
+                                        withContext(Dispatchers.Main) {
+                                            downloadedFiles = allFiles.filter { it.isFile && (it.name.endsWith(".mp4") || it.name.endsWith(".mkv") || it.name.endsWith(".avi")) }
+                                        }
+                                    }
+                                }) {
+                                    Icon(Icons.Default.Refresh, contentDescription = "Refresh Files", tint = Color.LightGray)
+                                }
+                            }
+
+                            if (downloadedFiles.isEmpty()) {
+                                Box(modifier = Modifier.fillMaxSize(), contentAlignment = Alignment.Center) {
+                                    Text("No downloaded videos found.", color = Color.Gray)
+                                }
+                            } else {
+                                LazyColumn(
+                                    modifier = Modifier
+                                        .fillMaxWidth()
+                                        .weight(1f)
+                                        .background(CardColor, RoundedCornerShape(8.dp))
+                                        .padding(8.dp)
+                                ) {
+                                    itemsIndexed(downloadedFiles) { index, file ->
+                                        Card(
+                                            modifier = Modifier
+                                                .fillMaxWidth()
+                                                .padding(vertical = 4.dp),
+                                            colors = CardDefaults.cardColors(containerColor = SecondaryAccent.copy(alpha = 0.5f))
+                                        ) {
+                                            Row(
+                                                modifier = Modifier.fillMaxWidth().padding(12.dp),
+                                                horizontalArrangement = Arrangement.SpaceBetween,
+                                                verticalAlignment = Alignment.CenterVertically
+                                            ) {
+                                                Column(modifier = Modifier.weight(1f)) {
+                                                    Text(text = file.name, color = Color.White, fontWeight = FontWeight.Bold)
+                                                    Text(text = formatSize(file.length()), color = Color.LightGray, fontSize = 12.sp)
+                                                }
+                                                Row {
+                                                    Button(
+                                                        onClick = {
+                                                            val uri = FileProvider.getUriForFile(context, "\${context.packageName}.provider", file)
+                                                            val intent = Intent(context, PlayerActivity::class.java).apply {
+                                                                putExtra(PlayerActivity.EXTRA_VIDEO_URL, uri.toString())
+                                                                putExtra(PlayerActivity.EXTRA_VIDEO_TITLE, file.name)
+                                                            }
+                                                            context.startActivity(intent)
+                                                        },
+                                                        colors = ButtonDefaults.buttonColors(containerColor = AccentColor),
+                                                        modifier = Modifier.padding(end = 8.dp)
+                                                    ) {
+                                                        Icon(Icons.Default.PlayArrow, contentDescription = "Play", tint = Color.White)
+                                                        Spacer(Modifier.width(4.dp))
+                                                        Text("Play", color = Color.White)
+                                                    }
+                                                    Button(
+                                                        onClick = {
+                                                            if (file.delete()) {
+                                                                Toast.makeText(context, "Deleted", Toast.LENGTH_SHORT).show()
+                                                                downloadedFiles = downloadedFiles.filter { it.absolutePath != file.absolutePath }
+                                                            } else {
+                                                                Toast.makeText(context, "Failed to delete", Toast.LENGTH_SHORT).show()
+                                                            }
+                                                        },
+                                                        colors = ButtonDefaults.buttonColors(containerColor = ErrorColor)
+                                                    ) {
+                                                        Icon(Icons.Default.Delete, contentDescription = "Delete", tint = Color.White)
                                                     }
                                                 }
                                             }
