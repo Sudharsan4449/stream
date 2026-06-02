@@ -41,6 +41,20 @@ class TvDownloadService : Service() {
             val filename = intent.getStringExtra(EXTRA_FILENAME) ?: "downloaded_video.mp4"
             
             if (url != null) {
+                // Prevent duplicate active downloads
+                if (downloadProgressFlow.value.containsKey(filename)) {
+                    Toast.makeText(this, "Download already in progress...", Toast.LENGTH_SHORT).show()
+                    return START_NOT_STICKY
+                }
+                
+                // Prevent downloading already existing files
+                val dirs = ContextCompat.getExternalFilesDirs(this, Environment.DIRECTORY_MOVIES)
+                val targetDir = if (dirs.size > 1 && dirs[1] != null) dirs[1] else dirs[0]
+                if (targetDir != null && File(targetDir, filename).exists()) {
+                    Toast.makeText(this, "Video is already downloaded!", Toast.LENGTH_SHORT).show()
+                    return START_NOT_STICKY
+                }
+
                 startForegroundService(filename)
                 startDownload(url, filename)
             }
