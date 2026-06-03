@@ -1,6 +1,9 @@
 <?xml version="1.0" encoding="utf-8"?>
 <paths xmlns:android="http://schemas.android.com/apk/res/android">
     <external-path name="external_downloads" path="Download/" />
-    <external-files-path name="external_files_downloads" path="Download/" />
-    <cache-path name="cache_downloads" path="." />
+    <external-path name="external_movies" path="Movies/" />
+    <external-files-path name="external_files" path="." />
+    <cache-path name="cache" path="." />
+    <!-- Root path fallback is crucial for files stored on removable USB drives -->
+    <root-path name="root" path="." />
 </paths>
