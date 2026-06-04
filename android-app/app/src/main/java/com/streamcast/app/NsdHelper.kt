@@ -85,7 +85,7 @@ class NsdHelper(private val context: Context) {
 
             override fun onServiceFound(serviceInfo: NsdServiceInfo) {
                 Log.d(TAG, "Service found: ${serviceInfo.serviceName}")
-                if (serviceInfo.serviceType == SERVICE_TYPE) {
+                if (serviceInfo.serviceType.contains("_streamcast._tcp")) {
                     nsdManager.resolveService(serviceInfo, object : NsdManager.ResolveListener {
                         override fun onResolveFailed(serviceInfo: NsdServiceInfo, errorCode: Int) {
                             Log.e(TAG, "Resolve failed: $errorCode")

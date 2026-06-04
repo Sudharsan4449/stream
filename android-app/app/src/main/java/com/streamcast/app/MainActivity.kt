@@ -1269,6 +1269,7 @@ class MainActivity : ComponentActivity() {
                                                             val intent = Intent(context, PlayerActivity::class.java).apply {
                                                                 putExtra(PlayerActivity.EXTRA_VIDEO_URL, uri.toString())
                                                                 putExtra(PlayerActivity.EXTRA_VIDEO_TITLE, file.name)
+                                                                addFlags(Intent.FLAG_GRANT_READ_URI_PERMISSION)
                                                             }
                                                             context.startActivity(intent)
                                                         },
@@ -1352,7 +1353,7 @@ class MainActivity : ComponentActivity() {
     }
 
     private fun startDownload(url: String, scope: kotlinx.coroutines.CoroutineScope) {
-        val file = File(cacheDir, "streamcast_update.apk")
+        val file = File(getExternalFilesDir(android.os.Environment.DIRECTORY_DOWNLOADS), "streamcast_update.apk")
         if (file.exists()) {
             file.delete()
         }
