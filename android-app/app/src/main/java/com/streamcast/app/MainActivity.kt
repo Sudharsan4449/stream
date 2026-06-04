@@ -1353,7 +1353,7 @@ class MainActivity : ComponentActivity() {
     }
 
     private fun startDownload(url: String, scope: kotlinx.coroutines.CoroutineScope) {
-        val file = File(getExternalFilesDir(android.os.Environment.DIRECTORY_DOWNLOADS), "streamcast_update.apk")
+        val file = File(cacheDir, "streamcast_update.apk")
         if (file.exists()) {
             file.delete()
         }
@@ -1447,16 +1447,35 @@ class MainActivity : ComponentActivity() {
         try {
             if (file.exists()) {
                 val uri = FileProvider.getUriForFile(this, "${packageName}.provider", file)
+                
                 val intent = Intent(Intent.ACTION_VIEW)
                 intent.setDataAndType(uri, "application/vnd.android.package-archive")
-                intent.flags = Intent.FLAG_ACTIVITY_NEW_TASK or Intent.FLAG_GRANT_READ_URI_PERMISSION
-                startActivity(intent)
+                intent.addFlags(Intent.FLAG_GRANT_READ_URI_PERMISSION)
+                intent.addFlags(Intent.FLAG_ACTIVITY_NEW_TASK)
+                
+                // Explicitly grant permission to the package installer to avoid SecurityExceptions
+                val resInfoList = packageManager.queryIntentActivities(intent, PackageManager.MATCH_DEFAULT_ONLY)
+                for (resolveInfo in resInfoList) {
+                    val targetPackage = resolveInfo.activityInfo.packageName
+                    grantUriPermission(targetPackage, uri, Intent.FLAG_GRANT_READ_URI_PERMISSION)
+                }
+
+                try {
+                    startActivity(intent)
+                } catch (e: android.content.ActivityNotFoundException) {
+                    // Fallback for some Android TVs that don't respond to ACTION_VIEW for APKs
+                    val fallbackIntent = Intent(Intent.ACTION_INSTALL_PACKAGE)
+                    fallbackIntent.data = uri
+                    fallbackIntent.addFlags(Intent.FLAG_GRANT_READ_URI_PERMISSION)
+                    fallbackIntent.addFlags(Intent.FLAG_ACTIVITY_NEW_TASK)
+                    startActivity(fallbackIntent)
+                }
             } else {
                 Toast.makeText(this, "Update file not found", Toast.LENGTH_SHORT).show()
             }
         } catch (e: Exception) {
             e.printStackTrace()
-            Toast.makeText(this, "Failed to launch installer", Toast.LENGTH_SHORT).show()
+            Toast.makeText(this, "Failed to launch installer: ${e.message}", Toast.LENGTH_LONG).show()
         }
     }
 
